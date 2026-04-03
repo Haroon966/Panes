@@ -12,24 +12,28 @@ export function TerminalTabBar() {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
       {sessions.map((tab) => (
-        <button
+        <div
           key={tab.id}
-          type="button"
-          onClick={() => setActive(tab.id)}
-          onDoubleClick={() => {
-            const t = window.prompt('Tab name', tab.title);
-            if (t) renameSession(tab.id, t);
-          }}
           className={`flex max-w-[160px] shrink-0 items-center gap-1 rounded px-2 py-1 text-xs ${
             tab.id === activeSessionId
               ? 'bg-terminalai-border text-terminalai-text'
               : 'text-terminalai-muted hover:bg-terminalai-border/60'
           }`}
         >
-          <span className="truncate">{tab.title}</span>
           <button
             type="button"
-            className="rounded p-0.5 hover:bg-terminalai-danger/30"
+            className="min-w-0 flex-1 truncate text-left"
+            onClick={() => setActive(tab.id)}
+            onDoubleClick={() => {
+              const t = window.prompt('Tab name', tab.title);
+              if (t) renameSession(tab.id, t);
+            }}
+          >
+            {tab.title}
+          </button>
+          <button
+            type="button"
+            className="shrink-0 rounded p-0.5 hover:bg-terminalai-danger/30"
             onClick={(e) => {
               e.stopPropagation();
               removeSession(tab.id);
@@ -38,7 +42,7 @@ export function TerminalTabBar() {
           >
             <X className="h-3 w-3" />
           </button>
-        </button>
+        </div>
       ))}
       <button
         type="button"

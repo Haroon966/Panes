@@ -29,16 +29,12 @@ export function resolveShellPath(): { path: string; label: string } {
 export interface ShellSessionMeta {
   shellLabel: string;
   shellPath: string;
-  fishPreferredMissing: boolean;
 }
 
 export function getShellSessionMeta(resolved: { path: string; label: string }): ShellSessionMeta {
-  const wantFish = (process.env.SHELL_DEFAULT || 'fish').toLowerCase() === 'fish';
-  const fishPreferredMissing = wantFish && resolved.label !== 'fish';
   return {
     shellLabel: resolved.label,
     shellPath: resolved.path,
-    fishPreferredMissing,
   };
 }
 

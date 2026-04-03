@@ -28,7 +28,11 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     const container = containerRef.current;
     if (!container) return;
 
+    /** False after cleanup starts — avoids fit/write after dispose (Strict Mode + RO races). */
+    let active = true;
+
     const term = new Terminal({
+      allowProposedApi: true,
       cursorBlink: true,
       fontSize: 13,
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
@@ -47,7 +51,11 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     (term.options as { unicodeVersion?: string }).unicodeVersion = '11';
 
     term.open(container);
-    fit.fit();
+    try {
+      fit.fit();
+    } catch {
+      /* zero-size container or dispose race */
+    }
 
     const linkDisp = registerTerminalErrorLinks(term);
 
@@ -71,6 +79,7 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     };
 
     const sendResize = () => {
+      if (!active) return;
       const dims = fit.proposeDimensions();
       if (dims && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
@@ -78,25 +87,21 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     };
 
     ws.onopen = () => {
+      if (!active) {
+        if (ws.readyState === WebSocket.OPEN) ws.close();
+        return;
+      }
       sendResize();
     };
 
     ws.onmessage = (ev: MessageEvent<string | ArrayBuffer>) => {
+      if (!active) return;
       if (typeof ev.data === 'string') {
         if (!sessionHandled) {
           try {
-            const j = JSON.parse(ev.data) as {
-              type?: string;
-              fishPreferredMissing?: boolean;
-              fishInstallHint?: string;
-            };
+            const j = JSON.parse(ev.data) as { type?: string };
             if (j.type === 'session') {
               sessionHandled = true;
-              if (j.fishPreferredMissing && j.fishInstallHint) {
-                term.writeln(
-                  `\r\n\x1b[38;2;240;136;62m${j.fishInstallHint}\x1b[0m\r\n`
-                );
-              }
               return;
             }
           } catch {
@@ -113,37 +118,49 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     };
 
     ws.onclose = () => {
+      if (!active) return;
       term.write('\r\n\x1b[33m[Disconnected from shell]\x1b[0m\r\n');
     };
 
     term.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(new TextEncoder().encode(data));
-      }
+      if (!active || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(new TextEncoder().encode(data));
     });
 
     const enc = new TextEncoder();
     const controller = {
       write: (data: string) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(enc.encode(data));
+        if (!active || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(enc.encode(data));
       },
       pasteAndRun: (cmd: string) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(enc.encode(`${cmd}\r`));
-        }
+        if (!active || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(enc.encode(`${cmd}\r`));
       },
-      clear: () => term.clear(),
+      clear: () => {
+        if (active) term.clear();
+      },
       resize: () => {
-        fit.fit();
-        sendResize();
+        if (!active) return;
+        try {
+          fit.fit();
+          sendResize();
+        } catch {
+          /* terminal disposed or no layout */
+        }
       },
     };
 
     useTerminalStore.getState().registerController(sessionId, controller);
 
     const ro = new ResizeObserver(() => {
-      fit.fit();
-      sendResize();
+      if (!active) return;
+      try {
+        fit.fit();
+        sendResize();
+      } catch {
+        /* xterm viewport can throw if disposed mid-sync */
+      }
     });
     ro.observe(container);
 
@@ -154,11 +171,19 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     container.addEventListener('mousedown', onMouseDown);
 
     return () => {
+      active = false;
       container.removeEventListener('mousedown', onMouseDown);
       ro.disconnect();
       linkDisp.dispose();
       useTerminalStore.getState().unregisterController(sessionId);
-      ws.close();
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onclose = null;
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.close();
+      } else if (ws.readyState === WebSocket.CONNECTING) {
+        ws.addEventListener('open', () => ws.close(), { once: true });
+      }
       term.dispose();
     };
   }, [sessionId]);

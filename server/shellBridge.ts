@@ -18,9 +18,6 @@ export function attachPtyToWebSocket(
   const sessionPayload = JSON.stringify({
     type: 'session',
     shellLabel: sessionMeta.shellLabel,
-    fishPreferredMissing: sessionMeta.fishPreferredMissing,
-    fishInstallHint:
-      'Install fish: https://fishshell.com — macOS: brew install fish · Ubuntu: sudo apt install fish',
   });
   if (ws.readyState === WebSocket.OPEN) {
     ws.send(sessionPayload);
