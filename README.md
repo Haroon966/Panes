@@ -27,6 +27,8 @@
 git clone https://github.com/your-username/terminalai
 cd terminalai
 npm install
+# Optional — reference sources for chat/terminal UI (see CHECKLIST Phase 2)
+# Follow instructions in vendor/README.md
 cp .env.example .env
 # Edit .env and add your API keys
 npm run dev:all

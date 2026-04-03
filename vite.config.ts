@@ -18,6 +18,11 @@ export default defineConfig({
         target: `http://localhost:${apiPort}`,
         changeOrigin: true,
       },
+      '/ws': {
+        target: `http://localhost:${apiPort}`,
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 });

@@ -1,4 +1,8 @@
-/** Phase 5 — xterm lifecycle */
+/** Phase 5+ — xterm helpers; wire pasteAndRun when terminal store is connected */
 export function useTerminal() {
-  return {};
+  return {
+    pasteAndRun: (cmd: string) => {
+      void cmd;
+    },
+  };
 }

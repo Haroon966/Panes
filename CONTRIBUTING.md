@@ -24,3 +24,10 @@ Terminal I/O flows through `server/pty.ts` (server) and `src/hooks/useTerminal.t
 ## Vendor Code
 
 Files in `/vendor` are cloned from external repos. Do not modify them directly — copy the relevant parts into `/src` and adapt there. Document the source in a comment at the top of the file.
+
+| Path | Source | Notes |
+|------|--------|--------|
+| `vendor/chat-ui/` | [mckaywrigley/chatbot-ui](https://github.com/mckaywrigley/chatbot-ui) | Chat layout / message patterns |
+| `vendor/terminal/` | [rohanchandra/react-terminal-component](https://github.com/rohanchandra/react-terminal-component) | Used as reference; TerminalAI uses **xterm.js + node-pty** instead of this package’s mock terminal |
+
+The PRD’s `nicholasgasior/react-terminal-ui` URL was unavailable; `react-terminal-component` is the documented alternate.

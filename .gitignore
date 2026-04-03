@@ -12,7 +12,11 @@ build/
 .env.local
 .env.*.local
 
-# Vendor repo git history (keep the files, not the git history)
+# Vendor mirrors (clone locally — see vendor/README.md)
+vendor/chat-ui/
+vendor/terminal/
+
+# Vendor repo git history (if you remove the ignore above)
 vendor/**/.git
 
 # Logs

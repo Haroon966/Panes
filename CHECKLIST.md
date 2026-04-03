@@ -25,82 +25,83 @@
 ## Phase 1 — Dependency Installation
 
 ### Frontend
-- [ ] `npm install react react-dom`
-- [ ] `npm install -D @types/react @types/react-dom typescript vite @vitejs/plugin-react`
-- [ ] `npm install @xterm/xterm @xterm/addon-fit @xterm/addon-web-links @xterm/addon-search @xterm/addon-unicode11`
-- [ ] `npm install zustand`
-- [ ] `npm install ai` (Vercel AI SDK)
-- [ ] `npm install @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google @ai-sdk/groq @ai-sdk/mistral`
-- [ ] `npm install ollama`
-- [ ] `npm install tailwindcss postcss autoprefixer`
-- [ ] `npm install lucide-react` (icons)
-- [ ] `npm install react-resizable-panels` (for split terminal)
-- [ ] `npm install marked` or `npm install react-markdown` (render markdown in chat)
-- [ ] `npm install highlight.js` (syntax highlight code blocks in chat)
+- [x] `npm install react react-dom`
+- [x] `npm install -D @types/react @types/react-dom typescript vite @vitejs/plugin-react`
+- [x] `npm install @xterm/xterm @xterm/addon-fit @xterm/addon-web-links @xterm/addon-search @xterm/addon-unicode11`
+- [x] `npm install zustand`
+- [x] `npm install ai` (Vercel AI SDK)
+- [x] `npm install @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google @ai-sdk/groq @ai-sdk/mistral`
+- [x] `npm install ollama`
+- [x] `npm install tailwindcss postcss autoprefixer`
+- [x] `npm install lucide-react` (icons)
+- [x] `npm install react-resizable-panels` (for split terminal)
+- [x] `npm install marked` or `npm install react-markdown` (render markdown in chat)
+- [x] `npm install highlight.js` (syntax highlight code blocks in chat)
 
 ### Server
-- [ ] `npm install express ws node-pty cors`
-- [ ] `npm install -D @types/express @types/ws @types/node ts-node nodemon`
+- [x] `npm install express ws node-pty cors`
+- [x] `npm install -D @types/express @types/ws @types/node ts-node nodemon`
 
 ---
 
 ## Phase 2 — Vendor Repo Cloning
 
-- [ ] `mkdir -p vendor`
-- [ ] Clone chatbot UI: `git clone https://github.com/mckaywrigley/chatbot-ui vendor/chat-ui`
-- [ ] Clone react terminal: `git clone https://github.com/nicholasgasior/react-terminal-ui vendor/terminal`
-- [ ] Review `vendor/chat-ui/components` — identify reusable Chat message components
-- [ ] Copy chat message component patterns into `src/components/Chat/ChatMessage.tsx`
-- [ ] Review `vendor/terminal/src` — identify xterm.js integration patterns
-- [ ] Copy terminal initialization patterns into `src/components/Terminal/TerminalInstance.tsx`
-- [ ] Add `vendor/**/node_modules` and `vendor/**/.git` to `.gitignore`
-- [ ] Document which files were sourced from vendor in `CONTRIBUTING.md`
+- [x] `mkdir -p vendor`
+- [x] Clone chatbot UI: `git clone https://github.com/mckaywrigley/chatbot-ui vendor/chat-ui`
+- [x] Clone react terminal: `git clone https://github.com/rohanchandra/react-terminal-component vendor/terminal` _(PRD URL was 404; alternate per PRD)_
+- [x] Review `vendor/chat-ui/components` — identify reusable Chat message components
+- [x] Copy chat message component patterns into `src/components/Chat/ChatMessage.tsx` _(reference docstring; full UI in Phase 7)_
+- [x] Review `vendor/terminal/src` — identify xterm.js integration patterns _(vendor is non-xterm; real PTY+xterm in `TerminalInstance.tsx`)_
+- [x] Copy terminal initialization patterns into `src/components/Terminal/TerminalInstance.tsx` _(implemented xterm.js + WebSocket + node-pty)_
+- [x] Add `vendor/**/node_modules` and `vendor/**/.git` to `.gitignore` _(plus `vendor/chat-ui/`, `vendor/terminal/` — clone locally; see `vendor/README.md`)_
+- [x] Document which files were sourced from vendor in `CONTRIBUTING.md`
 
 ---
 
 ## Phase 3 — Server Setup (node-pty + WebSocket)
 
-- [ ] Create `server/index.ts` — Express app with WebSocket upgrade
-- [ ] Create `server/pty.ts`:
-  - [ ] Spawn PTY process defaulting to `fish` shell
-  - [ ] Fallback chain: `fish` → `bash` → `sh`
-  - [ ] Read shell preference from `SHELL_DEFAULT` env var
-  - [ ] Pass terminal size (cols/rows) on spawn
-- [ ] Create `server/shellBridge.ts`:
-  - [ ] Forward PTY output → WebSocket client
-  - [ ] Forward WebSocket data → PTY input
-  - [ ] Handle terminal resize events (`SIGWINCH`)
-  - [ ] Handle PTY exit → notify client
+- [x] Create `server/index.ts` — Express app with WebSocket upgrade
+- [x] Create `server/pty.ts`:
+  - [x] Spawn PTY process defaulting to `fish` shell
+  - [x] Fallback chain: `fish` → `bash` → `sh`
+  - [x] Read shell preference from `SHELL_DEFAULT` env var
+  - [x] Pass terminal size (cols/rows) on spawn
+- [x] Create `server/shellBridge.ts`:
+  - [x] Forward PTY output → WebSocket client
+  - [x] Forward WebSocket data → PTY input
+  - [x] Handle terminal resize events (`SIGWINCH`) _(via JSON `resize` messages + `pty.resize`)_
+  - [x] Handle PTY exit → notify client _(WebSocket close)_
 - [ ] Add `server/routes/chat.ts` — streaming proxy to LLM APIs
 - [ ] Add `server/routes/models.ts` — return available models (including local discovery)
 - [ ] Add `server/routes/agent.ts` — lightweight agent endpoint
 - [ ] Test: `curl localhost:3001/api/models` returns JSON
-- [ ] Test: WebSocket connection from browser opens Fish shell
+- [ ] Test: WebSocket connection from browser opens Fish shell _(manual: run `npm run dev:all`, use terminal pane)_
 
 ---
 
 ## Phase 4 — Fish Shell Integration
 
-- [ ] Verify `fish` binary detection in PTY spawn code
-- [ ] Add Fish shell version check on server start; log warning if not installed
+- [x] Verify `fish` binary detection in PTY spawn code
+- [x] Add Fish shell version check on server start; log warning if not installed
 - [ ] Add startup message in terminal if Fish not found, with install instructions
 - [ ] Test Fish auto-suggestions work through PTY pass-through
 - [ ] Test Fish syntax highlighting works through PTY
 - [ ] Test Fish history (`↑` arrow) works
 - [ ] Add `/edit-fish-config` slash command in chat that opens `~/.config/fish/config.fish` content in chat
-- [ ] Document Fish setup in `README.md`
+- [x] Document Fish setup in `README.md`
 
 ---
 
 ## Phase 5 — Terminal UI Component
 
-- [ ] Create `src/components/Terminal/TerminalInstance.tsx`:
-  - [ ] Mount xterm.js to a div ref
-  - [ ] Connect `FitAddon` for auto-resize
-  - [ ] Connect `WebLinksAddon`
-  - [ ] Connect `SearchAddon`
-  - [ ] WebSocket connection to server PTY bridge
-  - [ ] Handle resize observer → send resize to server
+- [x] Create `src/components/Terminal/TerminalInstance.tsx`:
+  - [x] Mount xterm.js to a div ref
+  - [x] Connect `FitAddon` for auto-resize
+  - [x] Connect `WebLinksAddon`
+  - [x] Connect `SearchAddon`
+  - [ ] Connect `Unicode11Addon` _(deferred: TS option mismatch with current @xterm/xterm typings)_
+  - [x] WebSocket connection to server PTY bridge
+  - [x] Handle resize observer → send resize to server
 - [ ] Create `src/components/Terminal/TerminalTabBar.tsx`:
   - [ ] Tab list with active tab indicator
   - [ ] `+` button to add new tab
@@ -111,17 +112,17 @@
   - [ ] Menu items: Split Horizontally, Split Vertically, New Tab, Open in New Window, Close Panel
   - [ ] "Open in New Window" opens `window.open()` with terminal-only route
   - [ ] Splits use `react-resizable-panels` for drag-resize
-- [ ] Create `src/components/Terminal/TerminalPanel.tsx`:
-  - [ ] Orchestrate tab bar + split layout + terminal instances
+- [x] Create `src/components/Terminal/TerminalPanel.tsx`:
+  - [ ] Orchestrate tab bar + split layout + terminal instances _(shell only; tabs/splits pending)_
   - [ ] Manage active terminal focus
-- [ ] Create `src/hooks/useTerminal.ts`:
+- [x] Create `src/hooks/useTerminal.ts`:
   - [ ] Expose `write(data)`, `clear()`, `resize()`, `pasteAndRun(cmd)` methods
   - [ ] `pasteAndRun(cmd)`: writes cmd to terminal + sends `\n`
 - [ ] Create `src/hooks/useTerminalSplit.ts`:
   - [ ] State: `splits[]`, `activeSplitId`
   - [ ] Actions: `addSplit()`, `removeSplit()`, `splitHorizontal()`, `splitVertical()`
-- [ ] Create `src/store/terminalStore.ts` (Zustand)
-- [ ] Style terminal panel per PRD § 6 color palette
+- [x] Create `src/store/terminalStore.ts` (Zustand)
+- [x] Style terminal panel per PRD § 6 color palette
 - [ ] Test: open terminal → type `fish --version` → see output
 
 ---
@@ -249,19 +250,19 @@
 
 ## Phase 10 — Layout & Main App
 
-- [ ] Create `src/components/Layout/MainLayout.tsx`:
-  - [ ] Flexbox layout: terminal (flex-grow) + chat sidebar (450px fixed)
+- [x] Create `src/components/Layout/MainLayout.tsx`:
+  - [x] Flexbox layout: terminal (flex-grow) + chat sidebar (450px fixed)
   - [ ] Chat sidebar collapse toggle (button between panels)
-  - [ ] Overall dark theme applied
-  - [ ] App header/titlebar: "TerminalAI" logo + collapse button
-- [ ] Create `src/App.tsx`:
+  - [x] Overall dark theme applied
+  - [ ] App header/titlebar: "TerminalAI" logo + collapse button _(sidebar header only)_
+- [x] Create `src/App.tsx`:
   - [ ] Wrap with Zustand providers
   - [ ] Initialize local model discovery on mount
-  - [ ] Initialize terminal WebSocket on mount
-  - [ ] Render `MainLayout`
+  - [x] Initialize terminal WebSocket on mount _(via `TerminalInstance`)_
+  - [x] Render `MainLayout`
 - [ ] Add route for `/terminal-only` (used by "Open in New Window")
-- [ ] Apply full color palette from PRD § 6
-- [ ] Apply font imports (Inter + JetBrains Mono) in `index.html`
+- [x] Apply full color palette from PRD § 6
+- [x] Apply font imports (Inter + JetBrains Mono) in `index.html`
 - [ ] Test full layout renders correctly at 1280px, 1440px, 1920px widths
 - [ ] Test chat sidebar collapses and terminal expands to fill space
 
@@ -349,12 +350,12 @@
 
 | Phase | Status | Notes |
 |---|---|---|
-| 0 — Bootstrap | ✅ Done | Phase 0 complete — Vite/React/TS/Tailwind/ESLint/Prettier, PRD folder tree, LICENSE, docs |
-| 1 — Dependencies | ⬜ TODO | |
-| 2 — Vendor Repos | ⬜ TODO | |
-| 3 — Server | ⬜ TODO | |
-| 4 — Fish Shell | ⬜ TODO | |
-| 5 — Terminal UI | ⬜ TODO | |
+| 0 — Bootstrap | ✅ Done | Vite/React/TS/Tailwind/ESLint/Prettier, PRD folder tree, LICENSE, docs |
+| 1 — Dependencies | ✅ Done | All packages in `package.json` + `npm install` |
+| 2 — Vendor Repos | ✅ Done | Clones documented; `vendor/README.md`; alternate terminal repo |
+| 3 — Server | 🟨 Partial | PTY + WS done; `/api/chat`, `/api/models`, `/api/agent` pending |
+| 4 — Fish Shell | 🟨 Partial | Spawn + startup logging; UX/tests/slash command pending |
+| 5 — Terminal UI | 🟨 Partial | xterm + WS + panel; tabs/splits/`useTerminal` API pending |
 | 6 — Error Highlight | ⬜ TODO | |
 | 7 — Chat Sidebar | ⬜ TODO | |
 | 8 — Model Selection | ⬜ TODO | |
@@ -363,4 +364,4 @@
 | 11 — GitHub Ready | ⬜ TODO | |
 | 12 — QA | ⬜ TODO | |
 
-> Last updated by Cursor: 2026-04-03 (Phase 0)
+> Last updated by Cursor: 2026-04-03 (Phase 0–5/10 partial — live PTY terminal)
