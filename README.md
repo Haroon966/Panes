@@ -6,6 +6,8 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-green)
 
+![Screenshot placeholder](https://via.placeholder.com/800x420/0d1117/8b949e?text=TerminalAI+screenshot+or+GIF)
+
 ---
 
 ## Features
@@ -36,7 +38,28 @@ npm run dev:all
 
 - **UI:** [http://localhost:5173](http://localhost:5173) (`npm run dev` only)
 - **API stub:** [http://localhost:3001](http://localhost:3001) (`npm run dev:server` only)
-- **`npm run dev:all`** runs Vite and the Express server together (after Phase 3+, use this for full features).
+- **`npm run dev:all`** runs Vite and the Express + WebSocket server together (required for PTY + `/api/*`).
+
+**Production build (UI only — still run the API server separately):**
+
+```bash
+npm run build
+npm run preview
+# In another terminal:
+npm run dev:server
+```
+
+---
+
+## Docker Compose
+
+```bash
+docker compose up --build
+```
+
+- API: `http://localhost:3001`
+- Vite dev client: `http://localhost:5173`  
+  Mounts `~/.config/fish` read-only into the server container for Fish config (see `docker-compose.yml`).
 
 ---
 
@@ -52,6 +75,7 @@ See `.env.example` for all options. Key ones:
 | `ANTHROPIC_API_KEY` | Optional server-side Anthropic key | — |
 | `GOOGLE_API_KEY` | Optional server-side Google key | — |
 | `GROQ_API_KEY` | Optional server-side Groq key | — |
+| `MISTRAL_API_KEY` | Optional server-side Mistral key | — |
 | `OLLAMA_BASE_URL` | Ollama local endpoint | `http://localhost:11434` |
 | `LMSTUDIO_BASE_URL` | LM Studio local endpoint | `http://localhost:1234` |
 | `ENABLE_AGENT` | Enable agent endpoint | `true` |

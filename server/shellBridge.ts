@@ -1,13 +1,32 @@
 import type { IPty } from 'node-pty';
 import { WebSocket } from 'ws';
+import type { ShellSessionMeta } from './pty';
 
 /**
  * Wire PTY I/O to a browser WebSocket.
+ * - First outbound message (text): JSON session meta for UI hints
  * - Binary frames: raw keystrokes / paste (UTF-8) → PTY input
- * - Text frames: JSON `{ type: "resize", cols, rows }` only
+ * - Text frames after: JSON `{ type: "resize", cols, rows }` only
  */
-export function attachPtyToWebSocket(ptyProcess: IPty, ws: WebSocket): void {
+export function attachPtyToWebSocket(
+  ptyProcess: IPty,
+  ws: WebSocket,
+  sessionMeta: ShellSessionMeta
+): void {
   let cleanedUp = false;
+
+  const sessionPayload = JSON.stringify({
+    type: 'session',
+    shellLabel: sessionMeta.shellLabel,
+    fishPreferredMissing: sessionMeta.fishPreferredMissing,
+    fishInstallHint:
+      'Install fish: https://fishshell.com — macOS: brew install fish · Ubuntu: sudo apt install fish',
+  });
+  if (ws.readyState === WebSocket.OPEN) {
+    ws.send(sessionPayload);
+  } else {
+    ws.once('open', () => ws.send(sessionPayload));
+  }
 
   const dataDisposable = ptyProcess.onData((data) => {
     if (ws.readyState === WebSocket.OPEN) {

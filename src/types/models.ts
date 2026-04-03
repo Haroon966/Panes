@@ -1,5 +1,3 @@
-/** Model / provider IDs — expand in Phase 8 */
-
 export type ProviderId =
   | 'openai'
   | 'anthropic'
@@ -9,3 +7,8 @@ export type ProviderId =
   | 'ollama'
   | 'lmstudio'
   | 'custom';
+
+export interface SelectedModel {
+  provider: ProviderId;
+  modelId: string;
+}

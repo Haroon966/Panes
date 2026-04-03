@@ -1,4 +1,7 @@
-/** Phase 6 — stderr → chat */
+import { useTerminalStore } from '@/store/terminalStore';
+
+/** Terminal output capture is driven from `TerminalInstance` via `appendOutputLine`. */
 export function useErrorCapture() {
-  return {};
+  const lines = useTerminalStore((s) => s.outputLines);
+  return { outputLines: lines };
 }

@@ -26,6 +26,22 @@ export function resolveShellPath(): { path: string; label: string } {
   throw new Error('No shell found (tried SHELL_DEFAULT, fish, bash, sh)');
 }
 
+export interface ShellSessionMeta {
+  shellLabel: string;
+  shellPath: string;
+  fishPreferredMissing: boolean;
+}
+
+export function getShellSessionMeta(resolved: { path: string; label: string }): ShellSessionMeta {
+  const wantFish = (process.env.SHELL_DEFAULT || 'fish').toLowerCase() === 'fish';
+  const fishPreferredMissing = wantFish && resolved.label !== 'fish';
+  return {
+    shellLabel: resolved.label,
+    shellPath: resolved.path,
+    fishPreferredMissing,
+  };
+}
+
 export function logFishAvailability(): void {
   const fish = commandPath('fish');
   if (fish) {
@@ -48,8 +64,16 @@ export interface PtySessionOptions {
   cwd?: string;
 }
 
-export function createPtySession(options: PtySessionOptions): pty.IPty {
-  const { path: shellPath, label } = resolveShellPath();
+export interface PtySession {
+  pty: pty.IPty;
+  meta: ShellSessionMeta;
+}
+
+export function createPtySession(options: PtySessionOptions): PtySession {
+  const resolved = resolveShellPath();
+  const meta = getShellSessionMeta(resolved);
+  const shellPath = resolved.path;
+  const label = resolved.label;
   const cwd = options.cwd ?? process.env.HOME ?? process.cwd();
   const env = {
     ...process.env,
@@ -57,13 +81,15 @@ export function createPtySession(options: PtySessionOptions): pty.IPty {
     COLORTERM: 'truecolor',
   } as Record<string, string>;
 
-  console.log(`[TerminalAI] Spawning PTY: ${label} → ${shellPath}`);
+  console.log(`[TerminalAI] Spawning PTY: ${label} -> ${shellPath}`);
 
-  return pty.spawn(shellPath, [], {
+  const proc = pty.spawn(shellPath, [], {
     name: 'xterm-256color',
     cols: Math.max(2, options.cols),
     rows: Math.max(2, options.rows),
     cwd,
     env,
   });
+
+  return { pty: proc, meta };
 }

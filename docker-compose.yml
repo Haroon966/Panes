@@ -6,12 +6,12 @@ services:
       context: .
       dockerfile: Dockerfile.server
     ports:
-      - "3001:3001"
+      - '3001:3001'
     environment:
       - SHELL_DEFAULT=fish
       - PORT=3001
     volumes:
-      - ~/.config/fish:/root/.config/fish:ro
+      - ${HOME}/.config/fish:/root/.config/fish:ro
     env_file:
       - .env
 
@@ -20,7 +20,7 @@ services:
       context: .
       dockerfile: Dockerfile.client
     ports:
-      - "5173:5173"
+      - '5173:5173'
     environment:
       - VITE_API_BASE_URL=http://localhost:3001
     depends_on:

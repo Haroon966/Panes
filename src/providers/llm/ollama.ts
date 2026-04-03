@@ -1,4 +1,7 @@
-/** Phase 8 — local Ollama */
-export function createOllamaProvider() {
-  return null;
+import type { LanguageModel } from 'ai';
+
+export function createOllamaProvider(baseUrl: string, modelId: string): LanguageModel {
+  void baseUrl;
+  void modelId;
+  return null as unknown as LanguageModel;
 }
