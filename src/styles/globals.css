@@ -70,3 +70,34 @@
   background: #2a2a42;
   border-radius: 999px;
 }
+
+/* Skip link: off-screen until keyboard focus */
+.terminalai-skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: 100;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #fff;
+  background: #7c6af7;
+  text-decoration: none;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.terminalai-skip-link:focus {
+  clip: auto;
+  clip-path: none;
+  width: auto;
+  height: auto;
+  overflow: visible;
+  outline: 2px solid hsl(var(--ring) / 0.9);
+  outline-offset: 2px;
+}

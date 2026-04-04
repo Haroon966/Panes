@@ -6,7 +6,7 @@
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-green)
 
-![Screenshot placeholder](https://via.placeholder.com/800x420/0d1117/8b949e?text=TerminalAI+screenshot+or+GIF)
+![TerminalAI layout: terminal with error underline and chat panel with suggested command](docs/terminalai-demo.svg)
 
 Replace **`YOUR_GITHUB_USERNAME`** in clone / install commands below with your GitHub user or organization once the repo is published (or use your fork URL).
 

@@ -1,6 +1,5 @@
 import { History, MessageSquarePlus, PanelLeftClose, Search, Settings, Square, Trash2 } from 'lucide-react';
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ApiKeyModal } from '@/components/ModelSelector/ApiKeyModal';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ModelDropdown } from '@/components/ModelSelector/ModelDropdown';
 import {
   AlertDialog,
@@ -25,14 +24,101 @@ import { ChatInput } from './ChatInput';
 import { ChatMessage } from './ChatMessage';
 import { HitlApprovalPanel } from './HitlApprovalPanel';
 
+const HISTORY_PREVIEW_COUNT = 8;
+
+/** Narrow icon strip when chat history is collapsed: top = logo, new chat, search; bottom = settings, shortcuts. */
+function ChatHistoryIconRail({
+  onOpenHistory,
+  onOpenSettings,
+  shortcutsIconTrigger,
+}: {
+  onOpenHistory: () => void;
+  onOpenSettings: () => void;
+  shortcutsIconTrigger: ReactNode;
+}) {
+  const newChat = useChatStore((s) => s.newChat);
+
+  return (
+    <aside
+      className="flex min-h-0 w-full shrink-0 flex-row items-center justify-between gap-2 border-b border-terminalai-border bg-terminalai-surface px-2 pb-2.5 pt-4 md:h-full md:w-14 md:flex-col md:items-center md:justify-start md:gap-0 md:border-b-0 md:border-r md:px-1.5 md:py-0"
+      aria-label="Chat tools"
+    >
+      <div className="flex flex-row items-center gap-2 md:w-full md:flex-col md:items-center md:border-b md:border-terminalai-borderSubtle md:gap-2.5 md:px-1.5 md:pb-4 md:pt-6">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-terminalai-accent to-[#c084fc] font-mono text-xs font-bold text-white shadow-[0_0_12px_rgba(124,106,247,0.25)]"
+          aria-hidden
+        >
+          T
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-lg text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-accentText"
+              onClick={() => void newChat()}
+              aria-label="New chat"
+            >
+              <MessageSquarePlus className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">New chat</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-lg text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+              onClick={onOpenHistory}
+              aria-label="Search chat history"
+            >
+              <Search className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Search chat history</TooltipContent>
+        </Tooltip>
+      </div>
+      <div className="hidden min-h-0 w-full flex-1 md:block" aria-hidden />
+      <div className="flex flex-row items-center gap-1 md:w-full md:flex-col md:items-center md:gap-1.5 md:px-1.5 md:pb-4 md:pt-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 shrink-0 rounded-lg text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+              onClick={onOpenSettings}
+              aria-label="Settings / API keys"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Settings / API keys</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="inline-flex">{shortcutsIconTrigger}</span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Keyboard shortcuts</TooltipContent>
+        </Tooltip>
+      </div>
+    </aside>
+  );
+}
+
 function ChatHistoryColumn({
   historyFilter,
   setHistoryFilter,
   onOpenSettings,
+  shortcutsTrigger,
 }: {
   historyFilter: string;
   setHistoryFilter: (v: string) => void;
   onOpenSettings: () => void;
+  shortcutsTrigger: ReactNode;
 }) {
   const conversations = useChatStore((s) => s.conversations);
   const activeConversationId = useChatStore((s) => s.activeConversationId);
@@ -40,14 +126,48 @@ function ChatHistoryColumn({
   const newChat = useChatStore((s) => s.newChat);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
   const [deleteTarget, setDeleteTarget] = useState<ConversationRow | null>(null);
+  const [historyListExpanded, setHistoryListExpanded] = useState(false);
   const historyListScrollRef = useRef<HTMLDivElement>(null);
   const prevConversationCount = useRef(0);
+  const prevActiveConversationId = useRef<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = historyFilter.trim().toLowerCase();
     if (!q) return conversations;
     return conversations.filter((c) => (c.title ?? '').toLowerCase().includes(q));
   }, [conversations, historyFilter]);
+
+  const searching = historyFilter.trim().length > 0;
+
+  const displayList = useMemo(() => {
+    if (searching || historyListExpanded || filtered.length <= HISTORY_PREVIEW_COUNT) {
+      return filtered;
+    }
+    return filtered.slice(0, HISTORY_PREVIEW_COUNT);
+  }, [filtered, searching, historyListExpanded]);
+
+  const hiddenHistoryCount = filtered.length - HISTORY_PREVIEW_COUNT;
+  const showHistoryMore =
+    !searching && filtered.length > HISTORY_PREVIEW_COUNT && !historyListExpanded;
+  const activeIndexInFiltered = activeConversationId
+    ? filtered.findIndex((c) => c.id === activeConversationId)
+    : -1;
+  const canCollapseHistoryPreview =
+    activeIndexInFiltered < 0 || activeIndexInFiltered < HISTORY_PREVIEW_COUNT;
+  const showHistoryLess =
+    !searching &&
+    filtered.length > HISTORY_PREVIEW_COUNT &&
+    historyListExpanded &&
+    canCollapseHistoryPreview;
+
+  useEffect(() => {
+    if (searching) return;
+    const prev = prevActiveConversationId.current;
+    prevActiveConversationId.current = activeConversationId ?? null;
+    if (!activeConversationId || activeConversationId === prev) return;
+    const idx = filtered.findIndex((c) => c.id === activeConversationId);
+    if (idx >= HISTORY_PREVIEW_COUNT) setHistoryListExpanded(true);
+  }, [activeConversationId, filtered, searching]);
 
   useLayoutEffect(() => {
     const el = historyListScrollRef.current;
@@ -117,7 +237,7 @@ function ChatHistoryColumn({
           </p>
         ) : (
           <ul className="space-y-0.5">
-            {filtered.map((c) => {
+            {displayList.map((c) => {
               const active = c.id === activeConversationId;
               const title = c.title?.trim() || 'Untitled chat';
               return (
@@ -172,10 +292,33 @@ function ChatHistoryColumn({
                 </li>
               );
             })}
+            {showHistoryMore && (
+              <li>
+                <button
+                  type="button"
+                  className="w-full rounded-lg border border-transparent px-2.5 py-2 text-left text-2xs font-semibold text-terminalai-accentText transition-colors hover:border-terminalai-border hover:bg-terminalai-hover"
+                  onClick={() => setHistoryListExpanded(true)}
+                >
+                  More{hiddenHistoryCount > 0 ? ` (${hiddenHistoryCount})` : ''}
+                </button>
+              </li>
+            )}
+            {showHistoryLess && (
+              <li>
+                <button
+                  type="button"
+                  className="w-full rounded-lg border border-transparent px-2.5 py-2 text-left text-2xs font-medium text-terminalai-muted transition-colors hover:border-terminalai-border hover:bg-terminalai-hover hover:text-terminalai-text"
+                  onClick={() => setHistoryListExpanded(false)}
+                >
+                  Show less
+                </button>
+              </li>
+            )}
           </ul>
         )}
       </div>
-      <div className="shrink-0 border-t border-terminalai-borderSubtle p-2.5">
+      <div className="shrink-0 space-y-1 border-t border-terminalai-borderSubtle p-2.5">
+        <div className="flex w-full items-center justify-center">{shortcutsTrigger}</div>
         <button
           type="button"
           onClick={onOpenSettings}
@@ -224,9 +367,11 @@ function ChatHistoryColumn({
 function ChatbotColumn({
   catalog,
   onManageKeys,
+  shortcutsTrigger,
 }: {
   catalog: ModelsApiResponse | null;
   onManageKeys: () => void;
+  shortcutsTrigger: ReactNode;
 }) {
   const historyPanelOpen = useSettingsStore((s) => s.historyPanelOpen);
   const setHistoryPanelOpen = useSettingsStore((s) => s.setHistoryPanelOpen);
@@ -252,7 +397,14 @@ function ChatbotColumn({
           : 'md:min-w-[300px] md:flex-1'
       )}
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-terminalai-border px-3.5 py-2.5">
+      <header
+        className={cn(
+          'flex shrink-0 items-center gap-2 border-b border-terminalai-border px-3.5',
+          historyPanelOpen
+            ? 'min-h-[48px] pb-3 pt-3.5'
+            : 'min-h-[52px] pb-3.5 pt-4 md:min-h-[56px] md:pb-4 md:pt-5'
+        )}
+      >
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -279,51 +431,72 @@ function ChatbotColumn({
           <ModelDropdown catalog={catalog} onManageKeys={onManageKeys} />
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
-                onClick={() => void clearMessages()}
-                aria-label="Clear chat"
-              >
-                <Trash2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Clear chat</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
-                onClick={onManageKeys}
-                aria-label="Settings / API keys"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Settings / API keys</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-accentText"
-                onClick={() => void newChat()}
-                aria-label="New chat"
-              >
-                <MessageSquarePlus className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">New chat</TooltipContent>
-          </Tooltip>
+          {historyPanelOpen ? (
+            <>
+              <div className="flex shrink-0">{shortcutsTrigger}</div>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+                    onClick={() => void clearMessages()}
+                    aria-label="Clear chat"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Clear chat</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+                    onClick={onManageKeys}
+                    aria-label="Settings / API keys"
+                  >
+                    <Settings className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Settings / API keys</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-accentText"
+                    onClick={() => void newChat()}
+                    aria-label="New chat"
+                  >
+                    <MessageSquarePlus className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">New chat</TooltipContent>
+              </Tooltip>
+            </>
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+                  onClick={() => void clearMessages()}
+                  aria-label="Clear chat"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Clear chat</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       </header>
       <div
@@ -331,10 +504,27 @@ function ChatbotColumn({
         className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3.5 py-3.5"
       >
         {messages.length === 0 && (
-          <p className="text-[12.5px] leading-relaxed text-terminalai-muted">
-            Ask about terminal output, errors, or shell commands. Click orange underlines in the
-            terminal to attach errors.
-          </p>
+          <div className="rounded-lg border border-dashed border-terminalai-border bg-terminalai-elevated/40 px-3.5 py-3.5">
+            <p className="text-[12.5px] font-medium text-terminalai-text">Get started</p>
+            <ol className="mt-2.5 list-decimal space-y-2 pl-4 text-[12px] leading-relaxed text-terminalai-muted">
+              <li>
+                Choose a model in the header (cloud providers need an API key —{' '}
+                <button
+                  type="button"
+                  className="text-terminalai-accentText underline decoration-terminalai-border underline-offset-2 hover:text-terminalai-text"
+                  onClick={onManageKeys}
+                >
+                  Manage API keys
+                </button>
+                ).
+              </li>
+              <li>Type a question or paste output; press Enter to send (Shift+Enter for a new line).</li>
+              <li>
+                Click orange underlines in the terminal to attach errors, or use ▶ on suggested commands
+                to run them in the active shell.
+              </li>
+            </ol>
+          </div>
         )}
         {messages.map((m) => (
           <ChatMessage key={m.id} message={m} />
@@ -366,27 +556,47 @@ function ChatbotColumn({
         )}
       </div>
       <HitlApprovalPanel />
-      <ChatInput />
+      <ChatInput onManageKeys={onManageKeys} />
     </div>
   );
 }
 
-export function ChatSidebar({ catalog }: { catalog: ModelsApiResponse | null }) {
+export function ChatSidebar({
+  catalog,
+  onManageKeys,
+  shortcutsTrigger,
+  shortcutsIconTrigger,
+}: {
+  catalog: ModelsApiResponse | null;
+  onManageKeys: () => void;
+  shortcutsTrigger: ReactNode;
+  shortcutsIconTrigger: ReactNode;
+}) {
   const historyPanelOpen = useSettingsStore((s) => s.historyPanelOpen);
   const [historyFilter, setHistoryFilter] = useState('');
-  const [keysOpen, setKeysOpen] = useState(false);
+  const setHistoryPanelOpen = useSettingsStore((s) => s.setHistoryPanelOpen);
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-terminalai-surface md:flex-row">
-      {historyPanelOpen && (
+      {historyPanelOpen ? (
         <ChatHistoryColumn
           historyFilter={historyFilter}
           setHistoryFilter={setHistoryFilter}
-          onOpenSettings={() => setKeysOpen(true)}
+          onOpenSettings={onManageKeys}
+          shortcutsTrigger={shortcutsTrigger}
+        />
+      ) : (
+        <ChatHistoryIconRail
+          onOpenHistory={() => setHistoryPanelOpen(true)}
+          onOpenSettings={onManageKeys}
+          shortcutsIconTrigger={shortcutsIconTrigger}
         />
       )}
-      <ChatbotColumn catalog={catalog} onManageKeys={() => setKeysOpen(true)} />
-      <ApiKeyModal open={keysOpen} onClose={() => setKeysOpen(false)} />
+      <ChatbotColumn
+        catalog={catalog}
+        onManageKeys={onManageKeys}
+        shortcutsTrigger={shortcutsTrigger}
+      />
     </div>
   );
 }

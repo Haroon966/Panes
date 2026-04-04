@@ -60,9 +60,9 @@ function consumeUserKeystrokes(data: string, sessionId: string, inputScratch: { 
       continue;
     }
     if (c === '\r') {
-      const nonEmpty = inputScratch.s.trim().length > 0;
+      const line = inputScratch.s.trim();
       inputScratch.s = '';
-      if (nonEmpty) st.reportUserSubmittedNonEmptyCommand(sessionId);
+      if (line.length > 0) st.reportUserSubmittedNonEmptyCommand(sessionId, line);
       i++;
       continue;
     }
@@ -190,10 +190,15 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     };
 
     const processIncomingPty = (raw: string) => {
-      const { text, exitCodes } = stripTerminalAiExitOsc(raw, oscCarry);
+      const { text, exitCodes, tabTitles } = stripTerminalAiExitOsc(raw, oscCarry);
       if (exitCodes.length > 0) {
         const last = exitCodes[exitCodes.length - 1]!;
         useTerminalStore.getState().reportShellExitCode(sessionId, last);
+      }
+      const st = useTerminalStore.getState();
+      for (const rawTitle of tabTitles) {
+        const t = rawTitle.trim().slice(0, 256);
+        if (t) st.renameSession(sessionId, t);
       }
       appendPtyText(text);
       safeWrite(text);

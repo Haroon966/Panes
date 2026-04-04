@@ -1,3 +1,5 @@
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import { Router, type Request, type Response } from 'express';
 import semver from 'semver';
 
@@ -5,6 +7,53 @@ const REPO_PATTERN = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
 const GH_ACCEPT = 'application/vnd.github+json';
 const USER_AGENT = 'TerminalAI/1.0 (update-check)';
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const INSTALL_OUTPUT_MAX = 14_000;
+const INSTALL_TIMEOUT_MS = 600_000;
+
+function installSupported(): boolean {
+  return (
+    process.env.UPDATE_INSTALL_ALLOW === '1' && Boolean((process.env.UPDATE_INSTALL_COMMAND || '').trim())
+  );
+}
+
+function runInstallCommand(cmd: string, cwd: string): Promise<{ code: number; output: string }> {
+  return new Promise((resolve) => {
+    let out = '';
+    let settled = false;
+    const child = spawn('sh', ['-c', cmd], {
+      cwd,
+      env: process.env,
+    });
+    const finish = (result: { code: number; output: string }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill('SIGTERM');
+      } catch {
+        /* ignore */
+      }
+      finish({ code: -1, output: `${out}\n[timed out after ${INSTALL_TIMEOUT_MS}ms]` });
+    }, INSTALL_TIMEOUT_MS);
+    const append = (chunk: Buffer) => {
+      out += chunk.toString('utf8');
+      if (out.length > INSTALL_OUTPUT_MAX) {
+        out = `…\n${out.slice(-INSTALL_OUTPUT_MAX)}`;
+      }
+    };
+    child.stdout?.on('data', append);
+    child.stderr?.on('data', append);
+    child.on('error', (err) => {
+      finish({ code: -1, output: `${out}\n${err.message}` });
+    });
+    child.on('close', (code) => {
+      finish({ code: code ?? 1, output: out });
+    });
+  });
+}
 
 type Cached = {
   at: number;
@@ -105,6 +154,7 @@ updateCheckRouter.get('/app/update-check', async (req: Request, res: Response) =
       releaseUrl: '',
       checkedAt,
       error: 'invalid_update_check_repository',
+      installSupported: installSupported(),
     });
     return;
   }
@@ -132,6 +182,7 @@ updateCheckRouter.get('/app/update-check', async (req: Request, res: Response) =
         releaseUrl: `https://github.com/${repo.owner}/${repo.repo}/releases/latest`,
         checkedAt,
         error: 'github_unreachable',
+        installSupported: installSupported(),
       });
       return;
     }
@@ -143,6 +194,7 @@ updateCheckRouter.get('/app/update-check', async (req: Request, res: Response) =
       latestVersion: remote.latestVersion,
       releaseUrl: remote.releaseUrl,
       checkedAt,
+      installSupported: installSupported(),
     });
     return;
   }
@@ -154,5 +206,35 @@ updateCheckRouter.get('/app/update-check', async (req: Request, res: Response) =
     latestVersion: remote.latestVersion,
     releaseUrl: remote.releaseUrl,
     checkedAt,
+    installSupported: installSupported(),
+  });
+});
+
+updateCheckRouter.post('/app/install-update', async (_req: Request, res: Response) => {
+  if (process.env.UPDATE_INSTALL_ALLOW !== '1') {
+    res.status(403).json({ ok: false, error: 'install_not_allowed' });
+    return;
+  }
+  const cmd = (process.env.UPDATE_INSTALL_COMMAND || '').trim();
+  if (!cmd) {
+    res.status(400).json({ ok: false, error: 'no_command' });
+    return;
+  }
+  const cwd = (process.env.UPDATE_INSTALL_CWD || process.cwd()).trim() || process.cwd();
+  if (!fs.existsSync(cwd)) {
+    res.status(400).json({ ok: false, error: 'bad_cwd', detail: cwd });
+    return;
+  }
+
+  const { code, output } = await runInstallCommand(cmd, cwd);
+  if (code === 0) {
+    res.json({ ok: true, output: output.trimEnd() });
+    return;
+  }
+  res.status(500).json({
+    ok: false,
+    error: 'command_failed',
+    exitCode: code,
+    output: output.trimEnd(),
   });
 });

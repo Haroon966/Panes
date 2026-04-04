@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useTerminalStore } from '@/store/terminalStore';
 import type { TerminalStatusKind } from '@/utils/terminalSessionStatus';
-import { DEFAULT_LABELS } from '@/utils/terminalSessionStatus';
 import { cn } from '@/lib/utils';
 
 function tabChromeKind(kind: TerminalStatusKind): TerminalStatusKind {
@@ -145,7 +144,6 @@ export function TerminalTabBar() {
       {sessions.map((tab) => {
         const active = tab.id === activeSessionId;
         const kind: TerminalStatusKind = terminalSessionStatuses[tab.id]?.kind ?? 'ready';
-        const label = terminalSessionStatuses[tab.id]?.label ?? DEFAULT_LABELS.ready;
         const started = terminalSessionStatuses[tab.id]?.runningStartedAtMs;
         const elapsed =
           (kind === 'running' || kind === 'interactive') && started != null
@@ -168,21 +166,6 @@ export function TerminalTabBar() {
                 )}
               >
                 <TabStatusGlyph kind={kind} compact={!active} />
-                {active && (
-                  <span
-                    className={cn(
-                      'inline shrink-0 font-semibold uppercase tracking-wide',
-                      tabChromeKind(kind) === 'running' && 'text-terminalai-processing',
-                      tabChromeKind(kind) === 'success' && 'text-terminalai-success',
-                      tabChromeKind(kind) === 'error' && 'text-terminalai-danger',
-                      tabChromeKind(kind) === 'ready' && 'text-terminalai-success',
-                      tabChromeKind(kind) === 'disconnected' && 'text-terminalai-muted'
-                    )}
-                  >
-                    {DEFAULT_LABELS[tabChromeKind(kind)]}
-                    {elapsedStr ? ` ${elapsedStr}` : ''}
-                  </span>
-                )}
                 <button
                   type="button"
                   className="min-w-0 flex-1 truncate text-left"
@@ -216,10 +199,9 @@ export function TerminalTabBar() {
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs">
               <p className="font-medium">{tab.title}</p>
-              <p className="text-terminalai-muted">
-                {label}
-                {elapsedStr ? ` · ${elapsedStr}` : ''}
-              </p>
+              {(kind === 'running' || kind === 'interactive') && elapsedStr ? (
+                <p className="text-terminalai-muted">{elapsedStr}</p>
+              ) : null}
             </TooltipContent>
           </Tooltip>
         );

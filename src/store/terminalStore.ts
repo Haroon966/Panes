@@ -14,10 +14,33 @@ import {
 
 export type SessionId = string;
 
+/** Default label for new terminal tabs (and the last tab after closing all others). */
+export const DEFAULT_TERMINAL_TAB_TITLE = 'new terminal';
+
+const MAX_TAB_TITLE_LEN = 256;
+
+/** One-line command → safe tab title (whitespace collapsed, control chars stripped, max length). */
+export function tabTitleFromCommandLine(line: string): string {
+  const normalized = line.replace(/\r\n|\r|\n/g, ' ');
+  let cleaned = '';
+  for (const ch of normalized) {
+    const cp = ch.codePointAt(0)!;
+    if (cp >= 0x20 && cp !== 0x7f) cleaned += ch;
+  }
+  const t = cleaned.trim().replace(/\s+/g, ' ');
+  if (!t) return '';
+  return t.length > MAX_TAB_TITLE_LEN ? t.slice(0, MAX_TAB_TITLE_LEN) : t;
+}
+
 const MIN_RUNNING_MS = 300;
+/** After success on the focused tab, return to ready. */
+const SUCCESS_TO_READY_MS = 3000;
+/** After switching to a tab that shows success/error, return to ready. */
+const TAB_FOCUS_DISMISS_MS = 3000;
 
 const successClearTimers = new Map<SessionId, number>();
 const minDwellTimers = new Map<SessionId, number>();
+const tabDismissTimers = new Map<SessionId, number>();
 
 function clearSuccessClearTimer(id: SessionId): void {
   const t = successClearTimers.get(id);
@@ -35,6 +58,33 @@ function clearMinDwellTimer(id: SessionId): void {
   }
 }
 
+function clearTabDismissTimer(id: SessionId): void {
+  const t = tabDismissTimers.get(id);
+  if (t !== undefined) {
+    window.clearTimeout(t);
+    tabDismissTimers.delete(id);
+  }
+}
+
+function scheduleTabDismissToReady(id: SessionId): void {
+  clearTabDismissTimer(id);
+  const t = window.setTimeout(() => {
+    tabDismissTimers.delete(id);
+    useTerminalStore.setState((s) => {
+      if (s.activeSessionId !== id) return s;
+      const cur = s.terminalSessionStatuses[id];
+      if (cur?.kind !== 'success' && cur?.kind !== 'error') return s;
+      return {
+        terminalSessionStatuses: {
+          ...s.terminalSessionStatuses,
+          [id]: snapshotReady(),
+        },
+      };
+    });
+  }, TAB_FOCUS_DISMISS_MS);
+  tabDismissTimers.set(id, t);
+}
+
 function scheduleSuccessToReady(id: SessionId): void {
   clearSuccessClearTimer(id);
   const t = window.setTimeout(() => {
@@ -49,8 +99,15 @@ function scheduleSuccessToReady(id: SessionId): void {
         },
       };
     });
-  }, 2600);
+  }, SUCCESS_TO_READY_MS);
   successClearTimers.set(id, t);
+}
+
+/** In tab mode, only the active tab auto-clears success; background tabs keep success/error until selected. */
+function maybeScheduleSuccessClear(id: SessionId): void {
+  const { layout, activeSessionId } = useTerminalStore.getState();
+  if (layout.mode === 'tabs' && activeSessionId !== id) return;
+  scheduleSuccessToReady(id);
 }
 
 export interface TerminalController {
@@ -92,8 +149,8 @@ interface TerminalState {
   appendOutputLine: (line: string) => void;
   clearOutputBuffer: () => void;
   pasteAndRun: (cmd: string) => void;
-  /** User submitted a non-empty command (Enter or pasteAndRun). */
-  reportUserSubmittedNonEmptyCommand: (id: SessionId) => void;
+  /** User submitted a non-empty command (Enter or pasteAndRun); optional line sets the tab title. */
+  reportUserSubmittedNonEmptyCommand: (id: SessionId, commandLine?: string) => void;
   /** Printable input while Success or Error — return to Ready. */
   reportUserTyping: (id: SessionId) => void;
   /** Parsed from PTY stream; only affects state if currently Running. */
@@ -113,7 +170,7 @@ interface TerminalState {
 const firstId = newId();
 
 export const useTerminalStore = create<TerminalState>((set, get) => ({
-  sessions: [{ id: firstId, title: 'Terminal 1' }],
+  sessions: [{ id: firstId, title: DEFAULT_TERMINAL_TAB_TITLE }],
   activeSessionId: firstId,
   focusedSessionId: firstId,
   layout: { mode: 'tabs' },
@@ -125,7 +182,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   addSession: (title) => {
     const sid = newId();
     set((s) => ({
-      sessions: [...s.sessions, { id: sid, title: title ?? `Terminal ${s.sessions.length + 1}` }],
+      sessions: [...s.sessions, { id: sid, title: title ?? DEFAULT_TERMINAL_TAB_TITLE }],
       activeSessionId: sid,
       focusedSessionId: sid,
       layout: { mode: 'tabs' },
@@ -146,10 +203,11 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       const sessions = s.sessions.filter((x) => x.id !== id);
       clearSuccessClearTimer(id);
       clearMinDwellTimer(id);
+      clearTabDismissTimer(id);
       if (sessions.length === 0) {
         const nid = newId();
         return {
-          sessions: [{ id: nid, title: 'Terminal 1' }],
+          sessions: [{ id: nid, title: DEFAULT_TERMINAL_TAB_TITLE }],
           activeSessionId: nid,
           focusedSessionId: nid,
           layout: { mode: 'tabs' },
@@ -183,7 +241,26 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     });
   },
 
-  setActive: (id) => set({ activeSessionId: id, focusedSessionId: id }),
+  setActive: (id) => {
+    const s = get();
+    if (id === s.activeSessionId) {
+      set({ activeSessionId: id, focusedSessionId: id });
+      return;
+    }
+    if (s.layout.mode === 'tabs') {
+      clearSuccessClearTimer(s.activeSessionId);
+      clearSuccessClearTimer(id);
+      clearMinDwellTimer(id);
+      clearTabDismissTimer(s.activeSessionId);
+      clearTabDismissTimer(id);
+      const cur = s.terminalSessionStatuses[id];
+      const needsDismiss = cur?.kind === 'success' || cur?.kind === 'error';
+      set({ activeSessionId: id, focusedSessionId: id });
+      if (needsDismiss) scheduleTabDismissToReady(id);
+      return;
+    }
+    set({ activeSessionId: id, focusedSessionId: id });
+  },
   setFocused: (id) => set({ focusedSessionId: id }),
 
   renameSession: (id, title) =>
@@ -213,6 +290,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   unregisterController: (id) => {
     clearSuccessClearTimer(id);
     clearMinDwellTimer(id);
+    clearTabDismissTimer(id);
     set((s) => {
       const next = { ...s.controllers };
       delete next[id];
@@ -240,18 +318,25 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (!c) return;
     const oneLine = cmd.replace(/\r?\n/g, ' ').trim();
     if (!oneLine) return;
-    get().reportUserSubmittedNonEmptyCommand(sid);
+    get().reportUserSubmittedNonEmptyCommand(sid, oneLine);
     c.pasteAndRun(oneLine);
   },
 
-  reportUserSubmittedNonEmptyCommand: (id) => {
+  reportUserSubmittedNonEmptyCommand: (id, commandLine) => {
     clearSuccessClearTimer(id);
     clearMinDwellTimer(id);
+    clearTabDismissTimer(id);
+    const title = commandLine ? tabTitleFromCommandLine(commandLine) : '';
     set((s) => ({
       terminalSessionStatuses: {
         ...s.terminalSessionStatuses,
         [id]: snapshotForUserCommand(),
       },
+      ...(title
+        ? {
+            sessions: s.sessions.map((x) => (x.id === id ? { ...x, title } : x)),
+          }
+        : {}),
     }));
   },
 
@@ -259,6 +344,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const cur = get().terminalSessionStatuses[id];
     if (cur?.kind !== 'success' && cur?.kind !== 'error') return;
     clearSuccessClearTimer(id);
+    clearTabDismissTimer(id);
     set((s) => ({
       terminalSessionStatuses: {
         ...s.terminalSessionStatuses,
@@ -293,7 +379,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
             [id]: snapshotSuccess(),
           },
         }));
-        scheduleSuccessToReady(id);
+        maybeScheduleSuccessClear(id);
       } else {
         clearSuccessClearTimer(id);
         set((s) => ({
@@ -317,7 +403,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (next.kind === prev.kind && next.label === prev.label) return;
     if (next.kind === 'success') {
       clearSuccessClearTimer(id);
-      scheduleSuccessToReady(id);
+      maybeScheduleSuccessClear(id);
     } else {
       clearSuccessClearTimer(id);
     }
@@ -334,7 +420,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     if (next.kind === prev.kind && next.label === prev.label) return;
     if (next.kind === 'success') {
       clearSuccessClearTimer(id);
-      scheduleSuccessToReady(id);
+      maybeScheduleSuccessClear(id);
     } else {
       clearSuccessClearTimer(id);
     }
@@ -358,7 +444,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const { activeSessionId, sessions, terminalSessionStatuses, terminalSessionExitOscEnabled } = get();
     const right = newId();
     set({
-      sessions: [...sessions, { id: right, title: `Terminal ${sessions.length + 1}` }],
+      sessions: [...sessions, { id: right, title: DEFAULT_TERMINAL_TAB_TITLE }],
       layout: { mode: 'split-h', left: activeSessionId, right },
       activeSessionId: right,
       focusedSessionId: right,
@@ -377,7 +463,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const { activeSessionId, sessions, terminalSessionStatuses, terminalSessionExitOscEnabled } = get();
     const bottom = newId();
     set({
-      sessions: [...sessions, { id: bottom, title: `Terminal ${sessions.length + 1}` }],
+      sessions: [...sessions, { id: bottom, title: DEFAULT_TERMINAL_TAB_TITLE }],
       layout: { mode: 'split-v', top: activeSessionId, bottom },
       activeSessionId: bottom,
       focusedSessionId: bottom,

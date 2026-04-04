@@ -30,11 +30,12 @@ type ClineModelsResponse = {
   upstreamKind?: string;
 };
 
-export function ChatInput() {
+export function ChatInput({ onManageKeys }: { onManageKeys: () => void }) {
   const input = useChatStore((s) => s.input);
   const setInput = useChatStore((s) => s.setInput);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const showManageKeysCallout = useChatStore((s) => s.showManageKeysCallout);
   const focusNonce = useChatStore((s) => s.focusChatNonce);
   const ta = useRef<HTMLTextAreaElement>(null);
 
@@ -159,6 +160,24 @@ export function ChatInput() {
   return (
     <div className="shrink-0 border-t border-terminalai-border bg-terminalai-surface px-3.5 pb-3 pt-2.5">
       <ErrorReference />
+      {showManageKeysCallout && (
+        <div
+          className="mb-2.5 flex flex-col gap-2 rounded-lg border border-terminalai-borderBright bg-[rgba(245,158,11,0.08)] px-3 py-2.5"
+          role="status"
+        >
+          <p className="text-[12px] leading-snug text-terminalai-text">
+            This model needs a valid API key or provider settings before chat can run.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 w-fit bg-terminalai-accent text-xs font-semibold text-white hover:bg-[#6a58e0]"
+            onClick={onManageKeys}
+          >
+            Manage API keys
+          </Button>
+        </div>
+      )}
       <div className="overflow-hidden rounded-xl border border-terminalai-border bg-terminalai-elevated transition-colors focus-within:border-terminalai-accent">
         <Textarea
           ref={ta}

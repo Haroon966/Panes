@@ -186,7 +186,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ activeConversationId: convId, messages, hitlApprovals: [] }),
 
   newChat: async () => {
-    set({ messages: [], activeConversationId: null, hitlApprovals: [] });
+    set({ messages: [], activeConversationId: null, hitlApprovals: [], showManageKeysCallout: false });
     try {
       await flushPrefs();
     } catch (e) {
@@ -427,7 +427,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  clearMessages: () => set({ messages: [], hitlApprovals: [] }),
+  clearMessages: () => set({ messages: [], hitlApprovals: [], showManageKeysCallout: false }),
 }));
 
 export function buildPutAppPrefsPayload(

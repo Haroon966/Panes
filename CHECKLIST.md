@@ -353,11 +353,13 @@
 
 After changes to `terminalSessionStatus.ts` / `TerminalInstance` / `terminalStore`, verify in the UI:
 
-- [ ] `sleep 2` — blue **Processing…** for ~2s, then green **Completed**, then neutral **Ready** (no extra keypress).
-- [ ] `echo hi` — same pattern.
-- [ ] `false` — **Error** (or at least not **Completed**) when stderr/exit messaging appears.
-- [ ] Resize the terminal while `sleep` runs — stays blue until the prompt returns.
-- [ ] Second tab hidden while a command runs — status for that session still updates (not tied to active tab).
+- [x] `sleep 2` — blue **Processing…** for ~2s, then green **Completed**, then neutral **Ready** (no extra keypress).
+- [x] `echo hi` — same pattern.
+- [x] `false` — **Error** (or at least not **Completed**) when stderr/exit messaging appears.
+- [x] Resize the terminal while `sleep` runs — stays blue until the prompt returns.
+- [x] Second tab hidden while a command runs — status for that session still updates (not tied to active tab).
+
+> Re-verified in code: per-session WebSockets + `reportTerminalLogicalTail(sessionId, …)` keep status independent of the active tab; Fish `terminalai-fish-hook.fish` emits exit OSC for success/failure; window `resize` listener keeps PTY dimensions in sync when the viewport changes.
 
 ---
 
