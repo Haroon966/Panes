@@ -7,13 +7,13 @@ set -euo pipefail
 
 need_node() {
   if ! command -v node >/dev/null 2>&1; then
-    echo "error: Node.js is required (>= 18). Install from https://nodejs.org/" >&2
+    echo "error: Node.js is required (>= 20). Install from https://nodejs.org/" >&2
     exit 1
   fi
   local major
   major="$(node -p "parseInt(process.versions.node, 10)")"
-  if [ "$major" -lt 18 ]; then
-    echo "error: Node.js 18+ required (found $(node -v))" >&2
+  if [ "$major" -lt 20 ]; then
+    echo "error: Node.js 20+ required (found $(node -v))" >&2
     exit 1
   fi
 }

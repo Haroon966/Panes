@@ -4,7 +4,7 @@
 
 ![Status](https://img.shields.io/badge/status-in%20development-yellow)
 ![License](https://img.shields.io/badge/license-MIT-blue)
-![Node](https://img.shields.io/badge/node-%3E%3D18-green)
+![Node](https://img.shields.io/badge/node-%3E%3D20-green)
 
 ![Screenshot placeholder](https://via.placeholder.com/800x420/0d1117/8b949e?text=TerminalAI+screenshot+or+GIF)
 
@@ -94,7 +94,9 @@ Uses `NODE_ENV=production`; Express serves `dist/` from the same port as `/api` 
 npm run build:app
 ```
 
-Artifacts land in `release/` (e.g. AppImage/deb on Linux, NSIS on Windows, DMG on macOS). The packaged app still expects **`node` on `PATH`** to spawn the API bundle (`dist-server/index.cjs`). Install Node 18+ on the machine where you run the AppImage or `.deb`, or the API process will not start.
+Artifacts land in `release/` (e.g. AppImage/deb on Linux, NSIS on Windows, DMG on macOS). The packaged app still expects **`node` on `PATH`** to spawn the API bundle (`dist-server/index.cjs`). Install **Node 20+** on the machine where you run the AppImage or `.deb`, or the API process will not start.
+
+**Note:** `npm run rebuild:electron` pulls tooling that declares **Node ≥22.12**; use Node 22 LTS for that script if you hit engine warnings.
 
 ### GitHub Releases (Linux)
 

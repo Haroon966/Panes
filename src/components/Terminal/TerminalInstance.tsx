@@ -289,6 +289,17 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     });
     ro.observe(container);
 
+    const onWindowResize = () => {
+      if (!active || !opened || !hasUsableLayout(container)) return;
+      try {
+        fit.fit();
+        sendResize();
+      } catch {
+        /* ignore */
+      }
+    };
+    window.addEventListener('resize', onWindowResize);
+
     const onMouseDown = () => {
       useTerminalStore.getState().setFocused(sessionId);
       if (opened) term.focus();
@@ -301,6 +312,7 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
 
     return () => {
       active = false;
+      window.removeEventListener('resize', onWindowResize);
       container.removeEventListener('mousedown', onMouseDown);
       ro.disconnect();
       linkDisp?.dispose();

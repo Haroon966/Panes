@@ -25,6 +25,26 @@ function formatHttpErrorBody(status: number, body: string): string {
 const CLINE_FALLBACK_NOTE =
   '\n\nSwitched agent to TerminalAI (LangChain). For Cline + Ollama: run `ollama serve`, `ollama pull llama3.2` (or set CLINE_DEFAULT_MODEL), keep OLLAMA_BASE_URL in server .env, then pick Cline again.';
 
+/** Server returns 400 with these when keys/base URL are missing (see server/routes/agent.ts). */
+export function isClientConfigHttpError(status: number, detail: string): boolean {
+  const d = detail.toLowerCase();
+  if (status === 401) return true;
+  if (status === 400) {
+    return (
+      d.includes('api key missing') ||
+      d.includes('requires baseurl') ||
+      d.includes('unknown provider') ||
+      d.includes('custom provider requires') ||
+      d.includes('invalid api key') ||
+      d.includes('incorrect api key')
+    );
+  }
+  return (
+    d.includes('api key') &&
+    (d.includes('invalid') || d.includes('missing') || d.includes('incorrect') || d.includes('unauthorized'))
+  );
+}
+
 function shouldAutoFallbackFromClineFailure(status: number, detail: string): boolean {
   if (detail.includes('Cline upstream URL missing') || detail.includes('Cline base URL missing')) return true;
   if (status !== 502) return false;
@@ -67,6 +87,12 @@ interface ChatState {
   conversations: ConversationRow[];
   activeConversationId: string | null;
   hitlApprovals: HitlApprovalRow[];
+  /** After a send fails due to missing/invalid API key or provider config — show CTA in chat input. */
+  showManageKeysCallout: boolean;
+  setShowManageKeysCallout: (v: boolean) => void;
+  /** Brief text for a polite screen-reader announcement (e.g. stream stopped). */
+  a11yAnnouncement: string;
+  setA11yAnnouncement: (v: string) => void;
   setInput: (v: string) => void;
   setErrorContext: (ctx: string | null) => void;
   requestFocusChat: () => void;
@@ -102,6 +128,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   hitlApprovals: [],
+  showManageKeysCallout: false,
+  a11yAnnouncement: '',
+
+  setShowManageKeysCallout: (v) => set({ showManageKeysCallout: v }),
+
+  setA11yAnnouncement: (v) => set({ a11yAnnouncement: v }),
 
   setInput: (v) => set({ input: v }),
 
@@ -209,6 +241,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   sendMessage: async () => {
     const raw = get().input.trim();
     if (!raw || get().isStreaming) return;
+
+    set({ showManageKeysCallout: false, a11yAnnouncement: '' });
 
     const settings = useSettingsStore.getState();
     const errCtx = get().pendingErrorContext;
@@ -324,13 +358,15 @@ export const useChatStore = create<ChatState>((set, get) => ({
           useSettingsStore.getState().setAgentBackend('langchain');
           detail += CLINE_FALLBACK_NOTE;
         }
+        const needsKeys = isClientConfigHttpError(res.status, detail);
+        const assistantContent = needsKeys
+          ? 'Model request failed: check your API key or provider settings (Manage API keys below).'
+          : detail;
         set((s) => ({
-          messages: [
-            ...s.messages,
-            { id: id(), role: 'assistant', content: detail },
-          ],
+          messages: [...s.messages, { id: id(), role: 'assistant', content: assistantContent }],
           isStreaming: false,
           abortController: null,
+          showManageKeysCallout: needsKeys,
         }));
         await persistAssistantIfNeeded();
         return;
@@ -384,7 +420,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   abortStream: () => {
     get().abortController?.abort();
-    set({ isStreaming: false, abortController: null });
+    set({
+      isStreaming: false,
+      abortController: null,
+      a11yAnnouncement: 'Generation stopped.',
+    });
   },
 
   clearMessages: () => set({ messages: [], hitlApprovals: [] }),

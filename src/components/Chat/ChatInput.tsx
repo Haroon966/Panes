@@ -89,7 +89,7 @@ export function ChatInput() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [setClineServerBaseConfigured]);
 
   useEffect(() => {
     if (agentBackend !== 'cline') {
