@@ -1,4 +1,6 @@
 import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useChatStore } from '@/store/chatStore';
 
 export function ErrorReference() {
@@ -8,16 +10,23 @@ export function ErrorReference() {
   if (!ctx) return null;
 
   return (
-    <div className="mb-2 flex items-center gap-2 rounded border border-terminalai-warning/50 bg-terminalai-warning/10 px-2 py-1 text-xs text-terminalai-warning">
+    <div className="mb-2 flex items-center gap-2 rounded-lg border border-[rgba(245,158,11,0.28)] bg-[rgba(245,158,11,0.12)] px-2.5 py-1.5 text-xs text-terminalai-warning">
       <span>⚠ error ref attached</span>
-      <button
-        type="button"
-        onClick={clear}
-        className="ml-auto rounded p-0.5 hover:bg-terminalai-border/40"
-        title="Dismiss"
-      >
-        <X className="h-3 w-3" />
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xs"
+            className="ml-auto h-6 w-6 shrink-0"
+            onClick={clear}
+            aria-label="Dismiss error reference"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent>Dismiss</TooltipContent>
+      </Tooltip>
     </div>
   );
 }

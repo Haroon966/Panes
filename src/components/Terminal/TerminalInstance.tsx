@@ -1,3 +1,4 @@
+/* eslint-disable no-control-regex -- skip CSI / OSC while tracking typed command */
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
@@ -5,16 +6,87 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import { useEffect, useRef } from 'react';
 import '@xterm/xterm/css/xterm.css';
-import { registerTerminalErrorLinks } from './terminalErrorLinks';
+import { createExitOscCarry, stripTerminalAiExitOsc } from '@/lib/terminalExitOsc';
 import { useTerminalStore } from '@/store/terminalStore';
+import { registerTerminalErrorLinks } from './terminalErrorLinks';
+import { TerminalSessionStatusBar } from './TerminalSessionStatusBar';
 
 const WS_PATH = '/ws/terminal';
 
-function getWebSocketUrl(): string {
-  const explicit = import.meta.env.VITE_WS_URL as string | undefined;
-  if (explicit) return explicit;
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${WS_PATH}`;
+/** xterm breaks if open/fit/write run while the element has no box (e.g. inactive tab `hidden`). */
+function hasUsableLayout(el: HTMLElement): boolean {
+  return el.clientWidth > 2 && el.clientHeight > 2;
+}
+
+function getWebSocketUrl(sessionId: string): string {
+  const explicit = (import.meta.env.VITE_WS_URL as string | undefined)?.replace(/\/$/, '');
+  const base = explicit
+    ? explicit
+    : (() => {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        return `${protocol}//${window.location.host}${WS_PATH}`;
+      })();
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}sessionId=${encodeURIComponent(sessionId)}`;
+}
+
+/**
+ * Track typed command line locally so empty Enter does not flip to Running.
+ * Enter is detected on `\r` only (paste newlines do not submit).
+ */
+function consumeUserKeystrokes(data: string, sessionId: string, inputScratch: { s: string }): void {
+  const st = useTerminalStore.getState();
+  let i = 0;
+  while (i < data.length) {
+    const c = data[i];
+    if (c === '\x1b') {
+      const rest = data.slice(i);
+      const csi = rest.match(/^\x1b\[[\d;?]*[ -/]*[@-~]/);
+      if (csi) {
+        i += csi[0].length;
+        continue;
+      }
+      const osc = rest.match(/^\x1b\][^\x07]*\x07/);
+      if (osc) {
+        i += osc[0].length;
+        continue;
+      }
+      const oscSt = rest.match(/^\x1b\][^\x1b\\]*(\x1b\\|\x9c)/);
+      if (oscSt) {
+        i += oscSt[0].length;
+        continue;
+      }
+      i++;
+      continue;
+    }
+    if (c === '\r') {
+      const nonEmpty = inputScratch.s.trim().length > 0;
+      inputScratch.s = '';
+      if (nonEmpty) st.reportUserSubmittedNonEmptyCommand(sessionId);
+      i++;
+      continue;
+    }
+    if (c === '\n') {
+      i++;
+      continue;
+    }
+    if (c === '\x7f' || c === '\b') {
+      inputScratch.s = inputScratch.s.slice(0, -1);
+      i++;
+      continue;
+    }
+    const code = data.codePointAt(i)!;
+    if (code >= 0x20) {
+      inputScratch.s += String.fromCodePoint(code);
+      const cur = st.terminalSessionStatuses[sessionId];
+      if (cur?.kind === 'success' || cur?.kind === 'error') {
+        st.reportUserTyping(sessionId);
+      }
+      i += code > 0xffff ? 2 : 1;
+    } else {
+      i++;
+    }
+  }
 }
 
 export interface TerminalInstanceProps {
@@ -28,18 +100,17 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     const container = containerRef.current;
     if (!container) return;
 
-    /** False after cleanup starts — avoids fit/write after dispose (Strict Mode + RO races). */
     let active = true;
 
     const term = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
       fontSize: 13,
-      fontFamily: '"JetBrains Mono", "Fira Code", monospace',
+      fontFamily: '"JetBrains Mono", ui-monospace, monospace',
       theme: {
-        background: '#0a0e13',
-        foreground: '#e6edf3',
-        cursor: '#58a6ff',
+        background: '#0a0a0f',
+        foreground: '#e8e8f0',
+        cursor: '#7c6af7',
       },
     });
 
@@ -50,16 +121,54 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     term.loadAddon(new Unicode11Addon());
     (term.options as { unicodeVersion?: string }).unicodeVersion = '11';
 
-    term.open(container);
-    try {
-      fit.fit();
-    } catch {
-      /* zero-size container or dispose race */
-    }
+    let opened = false;
+    let linkDisp: { dispose: () => void } | null = null;
+    let pendingWrite = '';
 
-    const linkDisp = registerTerminalErrorLinks(term);
+    const oscCarry = createExitOscCarry();
+    const inputScratch = { s: '' };
 
-    const ws = new WebSocket(getWebSocketUrl());
+    const safeWrite = (chunk: string) => {
+      if (!active) return;
+      if (!opened || !hasUsableLayout(container)) {
+        pendingWrite += chunk;
+        return;
+      }
+      try {
+        term.write(chunk);
+      } catch {
+        pendingWrite += chunk;
+      }
+    };
+
+    const flushPendingWrites = () => {
+      if (!active || !opened || !hasUsableLayout(container) || pendingWrite.length === 0) return;
+      const chunk = pendingWrite;
+      pendingWrite = '';
+      try {
+        term.write(chunk);
+      } catch {
+        pendingWrite = chunk;
+      }
+    };
+
+    const tryOpenAndFit = () => {
+      if (!active || !hasUsableLayout(container)) return false;
+      if (!opened) {
+        term.open(container);
+        linkDisp = registerTerminalErrorLinks(term);
+        opened = true;
+      }
+      try {
+        fit.fit();
+      } catch {
+        /* ignore */
+      }
+      flushPendingWrites();
+      return true;
+    };
+
+    const ws = new WebSocket(getWebSocketUrl(sessionId));
     ws.binaryType = 'arraybuffer';
 
     let outBuf = '';
@@ -67,6 +176,7 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
 
     const appendPtyText = (s: string) => {
       outBuf += s;
+      useTerminalStore.getState().reportTerminalLogicalTail(sessionId, outBuf);
       let idx: number;
       while ((idx = outBuf.indexOf('\n')) >= 0) {
         const line = outBuf.slice(0, idx).replace(/\r$/, '');
@@ -75,11 +185,22 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
         if (st.focusedSessionId === sessionId || st.activeSessionId === sessionId) {
           st.appendOutputLine(line);
         }
+        st.reportTerminalOutputLine(sessionId, line);
       }
     };
 
+    const processIncomingPty = (raw: string) => {
+      const { text, exitCodes } = stripTerminalAiExitOsc(raw, oscCarry);
+      if (exitCodes.length > 0) {
+        const last = exitCodes[exitCodes.length - 1]!;
+        useTerminalStore.getState().reportShellExitCode(sessionId, last);
+      }
+      appendPtyText(text);
+      safeWrite(text);
+    };
+
     const sendResize = () => {
-      if (!active) return;
+      if (!active || !opened) return;
       const dims = fit.proposeDimensions();
       if (dims && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: 'resize', cols: dims.cols, rows: dims.rows }));
@@ -91,6 +212,7 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
         if (ws.readyState === WebSocket.OPEN) ws.close();
         return;
       }
+      tryOpenAndFit();
       sendResize();
     };
 
@@ -108,22 +230,23 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
             sessionHandled = true;
           }
         }
-        appendPtyText(ev.data);
-        term.write(ev.data);
+        processIncomingPty(ev.data);
         return;
       }
       const text = new TextDecoder().decode(ev.data);
-      appendPtyText(text);
-      term.write(text);
+      processIncomingPty(text);
     };
 
     ws.onclose = () => {
       if (!active) return;
-      term.write('\r\n\x1b[33m[Disconnected from shell]\x1b[0m\r\n');
+      useTerminalStore.getState().reportTerminalDisconnected(sessionId);
+      safeWrite('\r\n\x1b[33m[Disconnected from shell]\x1b[0m\r\n');
     };
 
     term.onData((data) => {
       if (!active || ws.readyState !== WebSocket.OPEN) return;
+      if (!opened) return;
+      consumeUserKeystrokes(data, sessionId, inputScratch);
       ws.send(new TextEncoder().encode(data));
     });
 
@@ -138,10 +261,10 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
         ws.send(enc.encode(`${cmd}\r`));
       },
       clear: () => {
-        if (active) term.clear();
+        if (active && opened) term.clear();
       },
       resize: () => {
-        if (!active) return;
+        if (!active || !opened || !hasUsableLayout(container)) return;
         try {
           fit.fit();
           sendResize();
@@ -155,6 +278,8 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
 
     const ro = new ResizeObserver(() => {
       if (!active) return;
+      if (!hasUsableLayout(container)) return;
+      tryOpenAndFit();
       try {
         fit.fit();
         sendResize();
@@ -166,15 +291,19 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
 
     const onMouseDown = () => {
       useTerminalStore.getState().setFocused(sessionId);
-      term.focus();
+      if (opened) term.focus();
     };
     container.addEventListener('mousedown', onMouseDown);
+
+    requestAnimationFrame(() => {
+      if (active) tryOpenAndFit();
+    });
 
     return () => {
       active = false;
       container.removeEventListener('mousedown', onMouseDown);
       ro.disconnect();
-      linkDisp.dispose();
+      linkDisp?.dispose();
       useTerminalStore.getState().unregisterController(sessionId);
       ws.onopen = null;
       ws.onmessage = null;
@@ -184,14 +313,18 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
       } else if (ws.readyState === WebSocket.CONNECTING) {
         ws.addEventListener('open', () => ws.close(), { once: true });
       }
-      term.dispose();
+      try {
+        term.dispose();
+      } catch {
+        /* not opened or already torn down */
+      }
     };
   }, [sessionId]);
 
   return (
-    <div
-      ref={containerRef}
-      className="h-full min-h-[200px] w-full overflow-hidden rounded border border-terminalai-border bg-terminalai-terminal"
-    />
+    <div className="flex h-full min-h-[200px] w-full min-w-0 flex-col overflow-hidden rounded-lg border border-terminalai-border bg-terminalai-base">
+      <div ref={containerRef} className="min-h-0 flex-1 overflow-hidden" />
+      <TerminalSessionStatusBar sessionId={sessionId} />
+    </div>
   );
 }

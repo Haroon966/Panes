@@ -4,6 +4,8 @@ vendor/**/node_modules/
 
 # Build output
 dist/
+dist-server/
+release/
 build/
 .vite/
 
@@ -16,8 +18,9 @@ build/
 vendor/chat-ui/
 vendor/terminal/
 
-# Vendor repo git history (if you remove the ignore above)
-vendor/**/.git
+# Nested vendor clones only (keep vendor/cline submodule .git usable)
+vendor/chat-ui/.git
+vendor/terminal/.git
 
 # Logs
 *.log

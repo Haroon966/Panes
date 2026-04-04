@@ -1,6 +1,7 @@
 import type { IPty } from 'node-pty';
 import { WebSocket } from 'ws';
 import type { ShellSessionMeta } from './pty';
+import { registerPtySession, unregisterPtySession } from './ptySessionRegistry';
 
 /**
  * Wire PTY I/O to a browser WebSocket.
@@ -11,9 +12,14 @@ import type { ShellSessionMeta } from './pty';
 export function attachPtyToWebSocket(
   ptyProcess: IPty,
   ws: WebSocket,
-  sessionMeta: ShellSessionMeta
+  sessionMeta: ShellSessionMeta,
+  /** When set, agent shell tools can run commands in this PTY (see chat `terminalSessionId`). */
+  browserSessionId?: string
 ): void {
   let cleanedUp = false;
+  if (browserSessionId) {
+    registerPtySession(browserSessionId, ptyProcess, sessionMeta.shellLabel);
+  }
 
   const sessionPayload = JSON.stringify({
     type: 'session',
@@ -57,6 +63,9 @@ export function attachPtyToWebSocket(
   function cleanup(killPty: boolean) {
     if (cleanedUp) return;
     cleanedUp = true;
+    if (browserSessionId) {
+      unregisterPtySession(browserSessionId, ptyProcess);
+    }
     dataDisposable.dispose();
     exitRef.d?.dispose();
     exitRef.d = null;

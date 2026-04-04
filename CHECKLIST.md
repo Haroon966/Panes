@@ -183,6 +183,7 @@
   - [x] Actions: `sendMessage()`, `abortStream()`, `clearMessages()`, `setErrorContext()`
 - [x] Test: send "hello" → AI responds with streaming text _(manual + API key)_
 - [x] Test: code block in response has ▶ button → click runs in terminal _(manual)_
+- [x] Server SQLite persistence: `server/db/` + REST (`/api/prefs`, `/api/conversations`, `/api/terminal-state`), client `PersistenceProvider` (API keys stay in browser)
 
 ---
 
@@ -345,6 +346,18 @@
 - [x] Fish syntax highlighting works
 - [x] `/edit-fish-config` slash command works in chat
 - [x] Fallback to bash if fish not installed
+
+---
+
+## Terminal session status (manual QA)
+
+After changes to `terminalSessionStatus.ts` / `TerminalInstance` / `terminalStore`, verify in the UI:
+
+- [ ] `sleep 2` — blue **Processing…** for ~2s, then green **Completed**, then neutral **Ready** (no extra keypress).
+- [ ] `echo hi` — same pattern.
+- [ ] `false` — **Error** (or at least not **Completed**) when stderr/exit messaging appears.
+- [ ] Resize the terminal while `sleep` runs — stays blue until the prompt returns.
+- [ ] Second tab hidden while a command runs — status for that session still updates (not tied to active tab).
 
 ---
 

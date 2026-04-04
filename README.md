@@ -1,12 +1,14 @@
 # TerminalAI 🖥️🤖
 
-> A browser-based terminal + AI chat panel — click an error, get a fix, run it with one button.
+> A terminal + AI chat panel — click an error, get a fix, run it with one button. Runs as a **desktop app** by default (Electron); you can still use the browser for development.
 
 ![Status](https://img.shields.io/badge/status-in%20development-yellow)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Node](https://img.shields.io/badge/node-%3E%3D18-green)
 
 ![Screenshot placeholder](https://via.placeholder.com/800x420/0d1117/8b949e?text=TerminalAI+screenshot+or+GIF)
+
+Replace **`YOUR_GITHUB_USERNAME`** in clone / install commands below with your GitHub user or organization once the repo is published (or use your fork URL).
 
 ---
 
@@ -23,35 +25,108 @@
 
 ---
 
+## Host on GitHub
+
+1. Create a new repository on GitHub (for example **terminalai**).
+2. From this project directory:
+
+```bash
+git remote add origin https://github.com/YOUR_GITHUB_USERNAME/terminalai.git
+git branch -M main
+git push -u origin main
+```
+
+With [GitHub CLI](https://cli.github.com/): `gh repo create terminalai --public --source=. --remote=origin --push`
+
+Enable **Actions** so CI and releases run. Optional: branch protection on `main`, required status checks.
+
+---
+
 ## Quick Start
 
 ```bash
-git clone https://github.com/your-username/terminalai
+git clone https://github.com/YOUR_GITHUB_USERNAME/terminalai.git
 cd terminalai
-npm install
-# Optional — reference sources for chat/terminal UI (see CHECKLIST Phase 2)
-# Follow instructions in vendor/README.md
-cp .env.example .env
-# Edit .env and add your API keys
-npm run dev:all
+./scripts/install.sh
+# Edit .env if you use cloud API keys (optional for local Ollama/LM Studio)
+npm start
 ```
 
-- **UI:** [http://localhost:5173](http://localhost:5173) (`npm run dev` only)
-- **API stub:** [http://localhost:3001](http://localhost:3001) (`npm run dev:server` only)
-- **`npm run dev:all`** runs Vite and the Express + WebSocket server together (required for PTY + `/api/*`).
+**One-liner** (clone + install; pass your repo URL as the first argument):
 
-**Production build (UI only — still run the API server separately):**
+```bash
+curl -fsSL https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/terminalai/main/scripts/install.sh | bash -s -- https://github.com/YOUR_GITHUB_USERNAME/terminalai.git
+```
+
+After install, use **`npm start`** (Electron) or **`npm run dev:web`** (browser).
+
+Manual path (same result as `./scripts/install.sh`):
+
+```bash
+npm ci   # or npm install
+cp .env.example .env   # if .env does not exist yet
+```
+
+Optional — reference sources for chat/terminal UI (see CHECKLIST Phase 2): follow [vendor/README.md](vendor/README.md).
+
+- **`npm start`** (alias **`npm run app`**) starts the API, Vite, and opens the **Electron** window (no browser tab needed). Waits for `http://localhost:3001` and `http://localhost:5173` before launching.
+- **Linux + Electron:** If you see `The SUID sandbox helper binary was found, but is not configured correctly`, the app already passes **`--no-sandbox`** on Linux by default. To use Chromium’s sandbox instead, fix `node_modules/electron/dist/chrome-sandbox` (owned by root, mode `4755`, see [Electron sandbox docs](https://www.electronjs.org/docs/latest/tutorial/sandbox)) and run with **`ELECTRON_USE_SANDBOX=1`**.
+- **Browser-only dev:** `npm run dev:web` (same as `npm run dev:all`) — Vite + API; open [http://localhost:5173](http://localhost:5173).
+- **API only:** `npm run dev:server` — [http://localhost:3001](http://localhost:3001).
+
+### Desktop vs browser
+
+The API server (`node-pty`, `better-sqlite3`) runs as a **child `node` process**, not inside Electron’s renderer. You do **not** need `@electron/rebuild` for normal use. Run `npm run rebuild:electron` only if you change the app so native addons load from **Electron’s main process** (unusual for this repo).
+
+### Production-style desktop run
+
+Builds the UI and a bundled API entrypoint, then opens Electron (API + static UI on one port):
+
+```bash
+npm run start:prod
+```
+
+Uses `NODE_ENV=production`; Express serves `dist/` from the same port as `/api` and `/ws` (default **3001**).
+
+### Packaged installers
+
+```bash
+npm run build:app
+```
+
+Artifacts land in `release/` (e.g. AppImage/deb on Linux, NSIS on Windows, DMG on macOS). The packaged app still expects **`node` on `PATH`** to spawn the API bundle (`dist-server/index.cjs`). Install Node 18+ on the machine where you run the AppImage or `.deb`, or the API process will not start.
+
+### GitHub Releases (Linux)
+
+Pushing a version tag builds Linux **AppImage** and **deb** in GitHub Actions and attaches them to a release:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+You can also run the **Release** workflow manually from the Actions tab (build only; artifacts upload when the run is for a `v*` tag). Windows/macOS installers are not produced by that workflow yet; build them locally with `npm run build:app` on each platform if needed.
+
+### Browser-only production preview
 
 ```bash
 npm run build
-npm run preview
-# In another terminal:
-npm run dev:server
+npm run build:server
+NODE_ENV=production node dist-server/index.cjs
+# Open http://localhost:3001 (UI + API same origin)
 ```
 
 ---
 
 ## Docker Compose
+
+`.env` is optional: Compose loads it when present. To bootstrap `.env` from `.env.example` and start everything:
+
+```bash
+./scripts/docker-up.sh
+```
+
+Or without the helper:
 
 ```bash
 docker compose up --build
@@ -59,7 +134,7 @@ docker compose up --build
 
 - API: `http://localhost:3001`
 - Vite dev client: `http://localhost:5173`  
-  Mounts `~/.config/fish` read-only into the server container for Fish config, and a named volume `terminalai-data` at `/root/.config/terminalai` for SQLite persistence (see `docker-compose.yml`).
+  Mounts `~/.config/fish` read-only into the server container for Fish config, and a named volume `terminalai-data` at `/root/.config/terminalai` for SQLite persistence (see [docker-compose.yml](docker-compose.yml)).
 
 ---
 
@@ -162,4 +237,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). To add a new LLM provider, add a file to
 ## License
 
 MIT — see [LICENSE](LICENSE)
-# Panes

@@ -25,5 +25,5 @@
       { "allowConstantExport": true }
     ]
   },
-  "ignorePatterns": ["dist", "vendor", "node_modules", "*.config.js"]
+  "ignorePatterns": ["dist", "dist-server", "release", "electron", "vendor", "node_modules", "*.config.js"]
 }

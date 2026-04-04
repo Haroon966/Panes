@@ -1,4 +1,7 @@
 import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import * as pty from 'node-pty';
 
 function commandPath(cmd: string): string | null {
@@ -11,6 +14,25 @@ function commandPath(cmd: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Fish hook path: env override, then cwd, then bundled server dir (tsx / dist-server). */
+export function resolveTerminalAiFishHookPath(): string | null {
+  const fromEnv = process.env.TERMINALAI_FISH_HOOK?.trim();
+  if (fromEnv && existsSync(fromEnv)) return fromEnv;
+
+  const cwdHook = join(process.cwd(), 'server/shellIntegration/terminalai-fish-hook.fish');
+  if (existsSync(cwdHook)) return cwdHook;
+
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const bundled = join(here, 'shellIntegration/terminalai-fish-hook.fish');
+    if (existsSync(bundled)) return bundled;
+  } catch {
+    //
+  }
+
+  return null;
 }
 
 export function resolveShellPath(): { path: string; label: string } {
@@ -77,9 +99,21 @@ export function createPtySession(options: PtySessionOptions): PtySession {
     COLORTERM: 'truecolor',
   } as Record<string, string>;
 
+  let spawnArgs: string[] = [];
+  if (label === 'fish') {
+    const hook = resolveTerminalAiFishHookPath();
+    if (hook) {
+      spawnArgs = ['-C', `source ${JSON.stringify(hook)}`];
+    } else {
+      console.warn(
+        '[TerminalAI] terminalai-fish-hook.fish not found; set TERMINALAI_FISH_HOOK or keep server/shellIntegration in cwd.'
+      );
+    }
+  }
+
   console.log(`[TerminalAI] Spawning PTY: ${label} -> ${shellPath}`);
 
-  const proc = pty.spawn(shellPath, [], {
+  const proc = pty.spawn(shellPath, spawnArgs, {
     name: 'xterm-256color',
     cols: Math.max(2, options.cols),
     rows: Math.max(2, options.rows),
