@@ -1,4 +1,0 @@
-[submodule "vendor/cline"]
-	path = vendor/cline
-	url = https://github.com/cline/cline.git
-	branch = main

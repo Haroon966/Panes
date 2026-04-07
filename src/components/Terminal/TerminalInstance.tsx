@@ -7,6 +7,7 @@ import { Terminal } from '@xterm/xterm';
 import { useEffect, useRef } from 'react';
 import '@xterm/xterm/css/xterm.css';
 import { createExitOscCarry, stripTerminalAiExitOsc } from '@/lib/terminalExitOsc';
+import { useSettingsStore } from '@/store/settingsStore';
 import { useTerminalStore } from '@/store/terminalStore';
 import { registerTerminalErrorLinks } from './terminalErrorLinks';
 import { TerminalSessionStatusBar } from './TerminalSessionStatusBar';
@@ -16,6 +17,12 @@ const WS_PATH = '/ws/terminal';
 /** xterm breaks if open/fit/write run while the element has no box (e.g. inactive tab `hidden`). */
 function hasUsableLayout(el: HTMLElement): boolean {
   return el.clientWidth > 2 && el.clientHeight > 2;
+}
+
+function xtermThemeFromEffective(effective: 'dark' | 'light') {
+  return effective === 'light'
+    ? { background: '#f8fafc', foreground: '#0f172a', cursor: '#6d28d9' }
+    : { background: '#0a0a0f', foreground: '#e8e8f0', cursor: '#7c6af7' };
 }
 
 function getWebSocketUrl(sessionId: string): string {
@@ -95,6 +102,9 @@ export interface TerminalInstanceProps {
 
 export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const xtermRef = useRef<Terminal | null>(null);
+  const effectiveTerminalTheme = useSettingsStore((s) => s.effectiveTerminalTheme);
+  const codeFontSizePx = useSettingsStore((s) => s.codeFontSizePx);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -105,14 +115,11 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     const term = new Terminal({
       allowProposedApi: true,
       cursorBlink: true,
-      fontSize: 13,
+      fontSize: useSettingsStore.getState().codeFontSizePx,
       fontFamily: '"JetBrains Mono", ui-monospace, monospace',
-      theme: {
-        background: '#0a0a0f',
-        foreground: '#e8e8f0',
-        cursor: '#7c6af7',
-      },
+      theme: xtermThemeFromEffective(useSettingsStore.getState().effectiveTerminalTheme),
     });
+    xtermRef.current = term;
 
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -190,7 +197,7 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
     };
 
     const processIncomingPty = (raw: string) => {
-      const { text, exitCodes, tabTitles } = stripTerminalAiExitOsc(raw, oscCarry);
+      const { text, exitCodes, tabTitles, cwdPaths } = stripTerminalAiExitOsc(raw, oscCarry);
       if (exitCodes.length > 0) {
         const last = exitCodes[exitCodes.length - 1]!;
         useTerminalStore.getState().reportShellExitCode(sessionId, last);
@@ -199,6 +206,16 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
       for (const rawTitle of tabTitles) {
         const t = rawTitle.trim().slice(0, 256);
         if (t) st.renameSession(sessionId, t);
+      }
+      const shellSid = st.getShellConnectedSessionId();
+      if (shellSid === sessionId && cwdPaths.length > 0) {
+        const lastCwd = cwdPaths[cwdPaths.length - 1]!.trim();
+        if (lastCwd) {
+          const prev = useSettingsStore.getState().workspaceRoot.trim();
+          if (prev !== lastCwd) {
+            useSettingsStore.getState().setWorkspaceRoot(lastCwd);
+          }
+        }
       }
       appendPtyText(text);
       safeWrite(text);
@@ -268,6 +285,10 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
       clear: () => {
         if (active && opened) term.clear();
       },
+      sendInterrupt: () => {
+        if (!active || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(enc.encode('\x03'));
+      },
       resize: () => {
         if (!active || !opened || !hasUsableLayout(container)) return;
         try {
@@ -317,6 +338,7 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
 
     return () => {
       active = false;
+      xtermRef.current = null;
       window.removeEventListener('resize', onWindowResize);
       container.removeEventListener('mousedown', onMouseDown);
       ro.disconnect();
@@ -337,6 +359,33 @@ export function TerminalInstance({ sessionId }: TerminalInstanceProps) {
       }
     };
   }, [sessionId]);
+
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+    term.options.theme = xtermThemeFromEffective(effectiveTerminalTheme);
+    try {
+      term.refresh(0, term.rows - 1);
+    } catch {
+      /* not opened yet */
+    }
+  }, [effectiveTerminalTheme]);
+
+  useEffect(() => {
+    const term = xtermRef.current;
+    if (!term) return;
+    term.options.fontSize = codeFontSizePx;
+    try {
+      term.refresh(0, term.rows - 1);
+    } catch {
+      /* not opened yet */
+    }
+    try {
+      useTerminalStore.getState().controllers[sessionId]?.resize();
+    } catch {
+      /* no controller */
+    }
+  }, [codeFontSizePx, sessionId]);
 
   return (
     <div className="flex h-full min-h-[200px] w-full min-w-0 flex-col overflow-hidden rounded-lg border border-terminalai-border bg-terminalai-base">

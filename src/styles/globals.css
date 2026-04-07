@@ -2,8 +2,41 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
+:root,
+html[data-terminalai-theme='dark'] {
   color-scheme: dark;
+  /* TerminalAI palette (referenced from tailwind.config `terminalai.*`) */
+  --terminalai-base: #0a0a0f;
+  --terminalai-surface: #0f0f17;
+  --terminalai-elevated: #14141e;
+  --terminalai-overlay: #1a1a28;
+  --terminalai-hover: #1e1e2e;
+  --terminalai-border: #1e1e2e;
+  --terminalai-borderSubtle: #16161f;
+  --terminalai-borderBright: #2a2a42;
+  --terminalai-accent: #7c6af7;
+  --terminalai-accentText: #a594f9;
+  --terminalai-text: #e8e8f0;
+  --terminalai-muted: #8585a8;
+  --terminalai-mutedDeep: #4a4a6a;
+  --terminalai-success: #22c55e;
+  --terminalai-processing: #3b82f6;
+  --terminalai-warning: #f59e0b;
+  --terminalai-danger: #ef4444;
+  --terminalai-cyan: #22d3ee;
+  --terminalai-pink: #f472b6;
+  --terminalai-bg: #0f0f17;
+  --terminalai-terminal: #0a0a0f;
+  --terminalai-chat: #0f0f17;
+  --terminalai-scrollbar-thumb: #2a2a42;
+  /* Monaco / editor chrome (VS Code–like) */
+  --terminalai-editor-chrome: #1e1e1e;
+  --terminalai-editor-tab-bar: #252526;
+  --terminalai-editor-tab-inactive: #2d2d2d;
+  --terminalai-editor-tab-active: #1e1e1e;
+  --terminalai-editor-input-bg: #3c3c3c;
+  --terminalai-editor-muted-fg: #858585;
+  --terminalai-editor-border: #333333;
   /* Aligned with ui-design.html (HSL components for Tailwind alpha) */
   --background: 240 20% 5%;
   --foreground: 240 20% 93%;
@@ -27,6 +60,59 @@
   --radius: 0.5rem;
   --radius-md: 0.375rem;
   --radius-sm: 0.25rem;
+}
+
+html[data-terminalai-theme='light'] {
+  color-scheme: light;
+  --terminalai-base: #f8fafc;
+  --terminalai-surface: #f1f5f9;
+  --terminalai-elevated: #e2e8f0;
+  --terminalai-overlay: #e2e8f0;
+  --terminalai-hover: #cbd5e1;
+  --terminalai-border: #cbd5e1;
+  --terminalai-borderSubtle: #e2e8f0;
+  --terminalai-borderBright: #94a3b8;
+  --terminalai-accent: #6d28d9;
+  --terminalai-accentText: #5b21b6;
+  --terminalai-text: #0f172a;
+  --terminalai-muted: #64748b;
+  --terminalai-mutedDeep: #475569;
+  --terminalai-success: #15803d;
+  --terminalai-processing: #1d4ed8;
+  --terminalai-warning: #b45309;
+  --terminalai-danger: #b91c1c;
+  --terminalai-cyan: #0e7490;
+  --terminalai-pink: #be185d;
+  --terminalai-bg: #f1f5f9;
+  --terminalai-terminal: #f8fafc;
+  --terminalai-chat: #f1f5f9;
+  --terminalai-scrollbar-thumb: #cbd5e1;
+  --terminalai-editor-chrome: #f8fafc;
+  --terminalai-editor-tab-bar: #e2e8f0;
+  --terminalai-editor-tab-inactive: #cbd5e1;
+  --terminalai-editor-tab-active: #f8fafc;
+  --terminalai-editor-input-bg: #e2e8f0;
+  --terminalai-editor-muted-fg: #64748b;
+  --terminalai-editor-border: #cbd5e1;
+  --background: 210 40% 98%;
+  --foreground: 222 47% 11%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+  --primary: 263 70% 50%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+  --muted: 210 40% 96%;
+  --muted-foreground: 215 16% 47%;
+  --accent: 210 40% 96%;
+  --accent-foreground: 222 47% 11%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 263 70% 50%;
 }
 
 @layer base {
@@ -54,7 +140,7 @@
 /* Reference-style scrollbars */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #2a2a42 transparent;
+  scrollbar-color: var(--terminalai-scrollbar-thumb) transparent;
 }
 
 *::-webkit-scrollbar {
@@ -67,7 +153,7 @@
 }
 
 *::-webkit-scrollbar-thumb {
-  background: #2a2a42;
+  background: var(--terminalai-scrollbar-thumb);
   border-radius: 999px;
 }
 

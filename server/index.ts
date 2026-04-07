@@ -12,15 +12,33 @@ import { clineAgentRouter } from './routes/clineAgent';
 import { fishConfigRouter } from './routes/fishConfig';
 import { modelsApiRouter } from './routes/models';
 import { openDb, getDb } from './db/client';
+import { loadAppPrefsSecretsRow } from './lib/appPrefs';
 import { createPtySession, logFishAvailability } from './pty';
 import { persistenceRouter } from './routes/persistence';
 import { updateCheckRouter } from './routes/updateCheck';
+import { workspaceEditorRouter } from './routes/workspaceEditor';
 import { attachPtyToWebSocket } from './shellBridge';
 
 const app = express();
 const port = Number(process.env.PORT) || 3001;
+/** Bind address. Default loopback so PTY/agent APIs are not exposed on LAN. Set HOST=0.0.0.0 to listen on all interfaces. */
+const host = process.env.HOST?.trim() || '127.0.0.1';
 
 openDb();
+
+/** Start new terminal tabs in the last persisted working directory when it still exists on disk. */
+function resolveInitialPtyCwd(): string | undefined {
+  const w = loadAppPrefsSecretsRow().workspace_root?.trim();
+  if (!w) return undefined;
+  const abs = path.resolve(w);
+  try {
+    const st = fs.statSync(abs);
+    if (st.isDirectory()) return abs;
+  } catch {
+    /* missing or unreadable */
+  }
+  return undefined;
+}
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
@@ -41,6 +59,7 @@ app.use('/api', clineAgentRouter);
 app.use('/api', fishConfigRouter);
 app.use('/api', persistenceRouter);
 app.use('/api', updateCheckRouter);
+app.use('/api', workspaceEditorRouter);
 
 const distDir = path.resolve(process.cwd(), 'dist');
 const serveUi =
@@ -72,7 +91,11 @@ wss.on('connection', (ws, req: IncomingMessage) => {
   try {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     const browserSessionId = url.searchParams.get('sessionId')?.trim() || undefined;
-    const { pty, meta } = createPtySession({ cols: 80, rows: 24 });
+    const { pty, meta } = createPtySession({
+      cols: 80,
+      rows: 24,
+      cwd: resolveInitialPtyCwd(),
+    });
     attachPtyToWebSocket(pty, ws, meta, browserSessionId);
   } catch (e) {
     console.error('[TerminalAI] PTY spawn failed:', e);
@@ -80,7 +103,8 @@ wss.on('connection', (ws, req: IncomingMessage) => {
   }
 });
 
-server.listen(port, () => {
-  console.log(`TerminalAI server http://localhost:${port}`);
+server.listen(port, host, () => {
+  const displayHost = host === '0.0.0.0' || host === '::' ? 'localhost' : host;
+  console.log(`TerminalAI server http://${displayHost}:${port}`);
   logFishAvailability();
 });

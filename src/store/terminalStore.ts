@@ -14,8 +14,16 @@ import {
 
 export type SessionId = string;
 
-/** Default label for new terminal tabs (and the last tab after closing all others). */
-export const DEFAULT_TERMINAL_TAB_TITLE = 'new terminal';
+/** First tab and fallback after closing all tabs. */
+export const DEFAULT_TERMINAL_TAB_TITLE = 'Terminal 1';
+
+/** Suggested names for “purpose” tabs (Terminal layout menu). */
+export const TERMINAL_TAB_NAME_PRESETS = ['Dev server', 'Tests', 'Agent', 'Build', 'Logs'] as const;
+
+/** Next numbered title when adding a tab without an explicit name (`Terminal 2`, …). */
+export function nextNumberedTerminalTabTitle(existingSessionCount: number): string {
+  return `Terminal ${Math.max(1, existingSessionCount + 1)}`;
+}
 
 const MAX_TAB_TITLE_LEN = 256;
 
@@ -114,6 +122,8 @@ export interface TerminalController {
   write: (data: string) => void;
   pasteAndRun: (cmd: string) => void;
   clear: () => void;
+  /** Send Ctrl+C to the PTY (interrupt foreground process). */
+  sendInterrupt: () => void;
   resize: () => void;
 }
 
@@ -149,6 +159,10 @@ interface TerminalState {
   appendOutputLine: (line: string) => void;
   clearOutputBuffer: () => void;
   pasteAndRun: (cmd: string) => void;
+  /** Clear xterm viewport for the focused (or active) session. */
+  clearFocusedTerminal: () => void;
+  /** Send Ctrl+C to the focused (or active) session’s shell. */
+  interruptFocusedTerminal: () => void;
   /** User submitted a non-empty command (Enter or pasteAndRun); optional line sets the tab title. */
   reportUserSubmittedNonEmptyCommand: (id: SessionId, commandLine?: string) => void;
   /** Printable input while Success or Error — return to Ready. */
@@ -182,7 +196,13 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
   addSession: (title) => {
     const sid = newId();
     set((s) => ({
-      sessions: [...s.sessions, { id: sid, title: title ?? DEFAULT_TERMINAL_TAB_TITLE }],
+      sessions: [
+        ...s.sessions,
+        {
+          id: sid,
+          title: title?.trim() || nextNumberedTerminalTabTitle(s.sessions.length),
+        },
+      ],
       activeSessionId: sid,
       focusedSessionId: sid,
       layout: { mode: 'tabs' },
@@ -322,6 +342,18 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     c.pasteAndRun(oneLine);
   },
 
+  clearFocusedTerminal: () => {
+    const { focusedSessionId, activeSessionId, controllers } = get();
+    const sid = focusedSessionId || activeSessionId;
+    controllers[sid]?.clear();
+  },
+
+  interruptFocusedTerminal: () => {
+    const { focusedSessionId, activeSessionId, controllers } = get();
+    const sid = focusedSessionId || activeSessionId;
+    controllers[sid]?.sendInterrupt();
+  },
+
   reportUserSubmittedNonEmptyCommand: (id, commandLine) => {
     clearSuccessClearTimer(id);
     clearMinDwellTimer(id);
@@ -444,7 +476,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const { activeSessionId, sessions, terminalSessionStatuses, terminalSessionExitOscEnabled } = get();
     const right = newId();
     set({
-      sessions: [...sessions, { id: right, title: DEFAULT_TERMINAL_TAB_TITLE }],
+      sessions: [...sessions, { id: right, title: nextNumberedTerminalTabTitle(sessions.length) }],
       layout: { mode: 'split-h', left: activeSessionId, right },
       activeSessionId: right,
       focusedSessionId: right,
@@ -463,7 +495,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     const { activeSessionId, sessions, terminalSessionStatuses, terminalSessionExitOscEnabled } = get();
     const bottom = newId();
     set({
-      sessions: [...sessions, { id: bottom, title: DEFAULT_TERMINAL_TAB_TITLE }],
+      sessions: [...sessions, { id: bottom, title: nextNumberedTerminalTabTitle(sessions.length) }],
       layout: { mode: 'split-v', top: activeSessionId, bottom },
       activeSessionId: bottom,
       focusedSessionId: bottom,

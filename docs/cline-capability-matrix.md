@@ -4,8 +4,9 @@
 |------------|----------------------------|----------------|----------------|
 | Chat + streaming | Webview + core task loop | LangGraph `/api/agent` + Cline HTTP `/api/agent/cline` | Keep both backends |
 | OpenAI-compatible local models | Yes (Ollama, LM Studio, etc.) | Cline proxy + env fallbacks | Phase 1: dedicated Cline model UI |
-| Multi-step agent with tools | Yes (rich toolkit) | LangGraph + workspace + optional shell tool | Stream shows tool start/end + truncated output |
+| Multi-step agent with tools | Yes (rich toolkit) | LangGraph + workspace + optional shell tool | Collapsible **Tools** panel + structured stream events; truncated output in rows |
 | Human approve before run | Yes (per tool / command) | `AGENT_REQUIRE_APPROVAL_FOR_WRITES` / shell approval | Approve / Reject in chat + `/api/agent/hitl/*` |
+| Tool activity + HITL in UI | Yes | **`/api/agent`** + **`/api/agent/cline`** when LangGraph is used (default) | Same `TERMINALAI_EVENT:` stream; **`CLINE_AGENT_DISABLE_TOOLS=1`** → Cline path is plain proxy only (no tool rows / approvals in stream) |
 | Edit files in workspace | Yes (diff view) | read / write / search_replace tools | Writes can require approval |
 | Run terminal commands | Yes (VS Code terminal) | PTY + suggest/run + optional `run_workspace_command` | Shell gated by `AGENT_ALLOW_SHELL` + allowlist |
 | Browser automation | Yes | No | Out of scope for web MVP |

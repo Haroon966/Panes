@@ -36,3 +36,6 @@ jobs:
 
       - name: Build server bundle
         run: npm run build:server
+
+      - name: Unit tests and agent smoke
+        run: npm test

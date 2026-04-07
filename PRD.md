@@ -3,7 +3,9 @@
 > **Version:** 1.0.0  
 > **Date:** 2026-04-03  
 > **Status:** Ready for Cursor Implementation  
-> **Cursor Instruction:** Read this PRD + `CHECKLIST.md` before writing a single line of code. Clone repos listed here, copy relevant files, then build on top of them.
+> **Cursor Instruction:** Read this PRD + `CHECKLIST.md` + `AGENT_IMPROVEMENT_CHECKLIST.md` (roadmap) before writing a single line of code. Clone repos listed here, copy relevant files, then build on top of them.
+
+**Agent roadmap vs v1 PRD:** Detailed checkbox work lives in `AGENT_IMPROVEMENT_CHECKLIST.md`. **§11 below** records implementation status **by phase** for the PRD; keep §11 and the checklist aligned when you ship agent features.
 
 ---
 
@@ -334,10 +336,10 @@ Accent red:       #ff7b72  (destructive actions)
 - Terminal font size: 13px
 
 ### Responsive Behavior
-- Chat sidebar: fixed 450px, collapsible via toggle button
+- Chat sidebar: fixed **450px** on viewports **≥900px**, collapsible via toggle button (`MainLayout.tsx`)
 - Terminal: fills remaining width
-- Minimum total width: 900px
-- Below 900px: chat becomes a slide-over drawer
+- Minimum total width: 900px for the side‑by‑side desktop layout
+- Below 900px: chat becomes a **right slide-over** (max width 450px) with a dimmed backdrop; tap backdrop to dismiss
 
 ---
 
@@ -387,14 +389,114 @@ AGENT_MAX_STEPS=5
 - VS Code extension version
 - Mobile support
 - Voice input
+- **Full parity with `AGENT_IMPROVEMENT_CHECKLIST.md`** — that file is a long-horizon roadmap (MCP, vector codebase index, Cline-extension-style diff/undo, automated lint/test gates, etc.). v1 PRD success criteria do **not** require completing every phase there; use the checklist’s **Phase roll-up** table for shipped-vs-aspirational status.
 
 ---
 
 ## 10. Success Criteria
 
-- [ ] Terminal opens with Fish shell by default in < 1 second
-- [ ] User can click an error → chat auto-populates → AI responds with command → user clicks ▶ → command runs
-- [ ] Model can be switched mid-conversation without losing context
-- [ ] Ollama local models appear automatically in model list if Ollama is running
-- [ ] Terminal can be split, opened in new tab, and opened in new window
-- [ ] Chat sidebar is exactly 450px wide and collapsible
+- [ ] Terminal opens with Fish shell by default in < 1 second _(Fish is the default when installed; cold-start latency depends on host)_
+- [x] User can click an error → chat auto-populates → AI responds with command → user clicks ▶ → command runs
+- [x] Model can be switched mid-conversation without losing context
+- [x] Ollama local models appear automatically in model list if Ollama is running
+- [x] Terminal can be split, opened in new tab, and opened in new window
+- [x] Chat sidebar is exactly 450px wide and collapsible _(450px at ≥900px viewport; slide-over below 900px)_
+
+---
+
+## 11. Agent roadmap — implementation status by phase
+
+<a id="prd-agent-roadmap"></a>
+
+> **Checklist:** `AGENT_IMPROVEMENT_CHECKLIST.md` (granular `[x]` / `[ ]` rows).  
+> **Maintenance rule:** When a phase’s scope changes in code, update **this §11 subsection** and the **matching checklist phase** in the same commit or PR. Counts below are **checkbox rows** in the checklist (partial items still count as one row). **Stable link targets:** `#prd-agent-roadmap` (§11 top), `#prd-phase-1` … `#prd-phase-12` (each subsection); the checklist’s end-of-phase **PRD** lines use these anchors.
+
+**Roll-up (mirrors checklist “Phase roll-up” table):** Phases **1–4, 10** (all checkbox rows have at least partial coverage), **12** are *partially* shipped; **5–7, 8–9, 11** are *minimal, alternate, or not implemented* relative to the aspirational checklist — **not** “all phases complete.”
+
+| Phase | Checklist rows done | Status |
+|-------|---------------------|--------|
+| 1 — Tools | 19 / 19 | Partial |
+| 2 — LangGraph | 12 / 22 | Partial |
+| 3 — Monaco | 13 / 23 | Partial |
+| 4 — Terminal | 15 / 15 | Strong |
+| 5 — Cline extension-style | 1 / 15 | Backend only |
+| 6 — MCP | 1 / 14 | Minimal (config discovery only) |
+| 7 — Context & memory | 4 / 13 | Minimal |
+| 8 — Planning | 4 / 13 | Minimal |
+| 9 — Quality gates | 1 / 17 | Not implemented as auto gates |
+| 10 — UX | 30 / 30 | Partial (all rows checked; several partial) |
+| 11 — Performance | 8 / 14 | Minimal |
+| 12 — Security | 7 / 12 | Partial |
+| **Total** | **116 / 207** | **~56%** |
+
+### 11.1 Phase 1 — Tool Use Foundation
+
+<a id="prd-phase-1"></a>
+
+**Status:** Partial. **Shipped:** Workspace read/write, search-replace, list, find files, grep contents (default excludes for `.git`, `node_modules`, build artifacts, and common secret `.env*` basenames — see `server/agent/workspaceGrepTool.ts`), path stat, **delete/copy/move regular files** (empty-dir delete optional), same sandbox + optional write-approval as other mutating tools (`server/agent/workspaceTools.ts`, `server/agent/graph.ts`); **package registry tools** — **search_npm_packages** (npmjs search API) and **lookup_pypi_project** (PyPI JSON API, exact project name), wired in `server/agent/registrySearchTools.ts` and `graph.ts`, disable with **AGENT_DISABLE_PACKAGE_REGISTRY_TOOLS**; **fetch_url** — HTTPS GET with **hostname allowlist**, private-IP block, **manual redirect** validation each hop, HTML→text and JSON formatting, size/timeout caps (`server/agent/fetchUrlTool.ts`, **AGENT_FETCH_URL_*** / **AGENT_DISABLE_FETCH_URL**); **read_documentation** — same fetch policy as **fetch_url**, returns **one overlapping text chunk** per tool call for long pages (`server/agent/readDocsTool.ts`, shared **fetchAllowlistedUrlAsPlainText**; **AGENT_READ_DOCS_CHUNK_CHARS**, **AGENT_DISABLE_READ_DOCS**); **web_search** — DuckDuckGo **instant answer** JSON API (`server/agent/webSearchTool.ts`, **AGENT_DISABLE_WEB_SEARCH**), not a full SERP and not Brave/Serper/Tavily; **find_workspace_symbol** / **find_workspace_references** — ripgrep **word-boundary** identifier search (`server/agent/symbolWorkspaceTools.ts`, shared **runWorkspaceContentGrep** in `workspaceGrepTool.ts`), not LSP/AST; **get_workspace_file_outline** — heuristic line/regex outline for TS/JS (incl. Vue/Svelte), Python, Go, Rust, Markdown (`server/agent/outlineWorkspaceTool.ts`), capped entries, same read-size sandbox as file reads — not a language-server or AST outline. **Gaps:** No doc “name → URL” resolver or curated doc index; no paid/structured web search APIs; no fuzzy PyPI search; no recursive directory tree delete in-tool; no LSP/AST outline or true “find references”.
+
+### 11.2 Phase 2 — LangGraph Orchestration
+
+<a id="prd-phase-2"></a>
+
+**Status:** Partial. **Shipped:** LangGraph `createReactAgent` loop, tool streaming (`server/agent/runAgent.ts`) including coarse **`graph_phase`** events (`model` vs `tool`, optional `langgraph_node` from stream metadata) for live UI (`streamProtocol.ts`, `chatStore.agentGraphPhase`, `ChatSidebar.tsx`); HITL approvals (`pendingApprovalsStore`, approval routes), env limits (`AGENT_MAX_STEPS`, `AGENT_RECURSION_LIMIT`, `AGENT_TOOL_REPEAT_GUARD`); **read-only mode** via **AGENT_READ_ONLY** — mutating workspace tools and **run_workspace_command** are not registered (`approvalEnv.ts`, `workspaceTools.ts`, `shellTool.ts`, prompt note in `graph.ts`). **Gaps:** No dedicated planner/observer/error-handler nodes, checkpointing, or parallel subgraphs.
+
+### 11.3 Phase 3 — Monaco Editor Integration
+
+<a id="prd-phase-3"></a>
+
+**Status:** Partial. **Shipped:** Multi-tab workspace editor, file sidebar, theming, minimap, folding, **sticky scroll** (indentation-based sticky lines, `stickyScroll` in `WorkspaceEditorPanel.tsx`), **file path breadcrumb** row above the editor (`BreadcrumbPath`: parent path segments are buttons that set the quick-open field for Enter/Open — not LSP symbol breadcrumbs), assistant chat inline `` `path:line` `` / `` `path#L42` `` links (`parseWorkspacePathWithLine` in `workspacePathHeuristic.ts`, `ChatMessage.tsx`) open the workspace editor and **reveal** that line (`workbenchStore.openEditorFileLine`, `WorkspaceEditorPanel` — not gutter decorations or a live agent cursor), multi-cursor (Monaco defaults), basic suggestions, **user-adjustable code font size** (10–22px from prefs, `WorkspaceEditorPanel.tsx`); optional **format on manual save** — when enabled in **API keys** → Workspace editor, **Ctrl/Cmd+S** and the Save button run Monaco **`editor.action.formatDocument`** when supported, then persist (`workspace_format_on_save` on `app_prefs`, migration `009_workspace_format_on_save.sql`); **30s auto-save** does not format; **⌘/Ctrl+L** opens the agent panel, focuses chat, and **prepends the active workspace file path** to the chat input when a tab is open (`workbenchStore.activeWorkspaceEditorPath`, `chatStore.injectWorkspaceEditorFileContext`, `useWorkbenchHotkeys`); **⌘/Ctrl+K** in the workspace Monaco editor opens the agent panel with **active file** + **fenced selection** in the chat input when the selection is non-empty (`chatStore.openAgentWithWorkspaceEditorSelection`, Monaco `addCommand` in `WorkspaceEditorPanel.tsx`); the editor surface is marked `data-terminalai-no-palette` so the global **⌘/Ctrl+K** shortcuts handler does not steal the chord — use **⌘/Ctrl+Shift+K** or **⌘/Ctrl+Shift+P** to open the **command palette** from the editor (`useKeyboardShortcutsPalette.tsx`). **Gaps:** No Copilot-style inline ghost completions, no inline diff review, no LSP server integration, no font-family picker; format-on-save is Monaco built-in only (not Prettier/Black/rustfmt CLI).
+
+### 11.4 Phase 4 — Terminal Integration
+
+<a id="prd-phase-4"></a>
+
+**Status:** Strong relative to checklist (all Phase 4 checkbox rows are at least partially met). **Shipped:** xterm.js, PTY sessions, splits/tabs, agent shell tool when enabled, `pasteAndRun` / `CommandButton`, OSC cwd integration, **code font size** synced with workspace editor prefs (`TerminalInstance.tsx`); terminal panel toolbar **Clear display** and **Send Ctrl+C**; **tab titles** default to **`Terminal 1`**, **`Terminal 2`**, … for new and split tabs (`nextNumberedTerminalTabTitle` in `terminalStore.ts`); **Terminal** layout dropdown offers **New tab: Dev server | Tests | Agent | Build | Logs** (`TERMINAL_TAB_NAME_PRESETS`, `TerminalSplitDropdown.tsx`); double-click rename on tabs; while a **LangGraph** agent stream is active, if **`run_workspace_command`** is running or awaiting approval, the matching tab shows a **Bot** icon + tooltip (`chatStore.agentStreamShellSessionId`, `TerminalTabBar.tsx`). **Gaps:** No full-screen “agent owns terminal” mode; no “kill PTY / close shell” distinct from Ctrl+C; badge is session-scoped (subprocess-only shell has no tab).
+
+### 11.5 Phase 5 — Cline Agentic Editing
+
+<a id="prd-phase-5"></a>
+
+**Status:** Cline **chat proxy** only, not extension-style editing. **Shipped:** Optional backend path `server/routes/clineAgent.ts` + UI backend toggle; assistant **fenced `diff` / `patch`** blocks in chat support **collapsible** inline preview + **full-diff** dialog (`ChatDiffFence.tsx`). **Gaps:** File mutations are **not** routed through Cline’s diff/apply/undo pipeline; no Monaco preview/rollback for Cline patches; no per-hunk apply from chat.
+
+### 11.6 Phase 6 — MCP Tool Integrations
+
+<a id="prd-phase-6"></a>
+
+**Status:** Not implemented as a **runtime** integration. **Partial:** If the workspace root contains **`.mcp.json`** with a top-level **`mcpServers`** object (Cursor / VS Code style), the workspace editor toolbar shows an **MCP · N servers** badge and tooltip listing server names (`WorkspaceMcpConfigBadge.tsx`, `mcpConfigParse.ts`); invalid JSON shows a warning tooltip. Example: **`.mcp.json.example`**. **Gaps:** No MCP client, no tool discovery, no LangGraph tool nodes for MCP.
+
+### 11.7 Phase 7 — Context & Memory
+
+<a id="prd-phase-7"></a>
+
+**Status:** Minimal. **Shipped:** SQLite persistence for conversations, messages, app prefs; agent POST may include `workspaceRoot` and `clineLocalBaseUrl` (`src/store/chatStore.ts`, `server/routes/persistence.ts`); **code search** via `grep_workspace_content` uses fixed exclude globs (noisy dirs + secret-style env files) and ripgrep’s default `.gitignore` respect — not a codebase embedding index; **pin-file context** — up to eight workspace-relative paths in `agent_pinned_paths_json`, snapshots appended to the agent system prompt each run (`server/agent/pinnedFilesPrompt.ts`, `runAgent.ts`, UI in `WorkspaceEditorPanel.tsx` + `ApiKeyModal.tsx`). **Gaps:** No vector index, semantic codebase search, or structured long-term “memory” beyond prefs and pins.
+
+### 11.8 Phase 8 — Planning & Reasoning
+
+<a id="prd-phase-8"></a>
+
+**Status:** Minimal. **Shipped:** Step limits and tool repeat guard (see §11.2); optional **AGENT_ENFORCE_READ_BEFORE_WRITE** — mutating tools refuse paths not yet read this request via **read_workspace_file** or **get_workspace_file_outline** (`workspaceReadBeforeWrite.ts`, wired from `runAgent.ts`); **unsaved workspace editor buffers** — the web UI syncs dirty tab paths to **`workbenchStore.dirtyWorkspacePaths`** and sends **`workspaceDirtyPaths`** on **`POST /api/agent`** and on **`POST /api/agent/cline`** when Cline uses the **LangGraph tools** path (i.e. **`CLINE_AGENT_DISABLE_TOOLS`** is not `1`); plain Cline proxy mode does not run workspace tools. Server-side refusal and HITL approve behavior match §11.2 wiring (`workspaceClientDirtyPaths.ts`, `executeApproval.ts`, `graph.ts`). **Gaps:** No tree-of-thought, self-critique, or sub-agents; plain Cline proxy ignores dirty paths; client-reported list is not cryptographically verified.
+
+### 11.9 Phase 9 — Code Quality & Safety
+
+<a id="prd-phase-9"></a>
+
+**Status:** Not implemented as **automated** product gates (no auto-run test/lint loop, no block-on-apply). **Partial:** Agent system prompt encourages suggesting or running tests after substantive edits when `run_workspace_command` fits (`server/agent/graph.ts`); **⌘/Ctrl+K** (outside the workspace editor) or **⌘/Ctrl+Shift+K** / **⌘/Ctrl+Shift+P** opens the **command palette** with **Write tests for this** and related **agent quick actions** (explain code/file, generate docs, find bugs), which prefill the chat input—optionally prefixed with the **active workspace file** when a tab is open (`KeyboardShortcutsDialog.tsx`). Tests and linters remain primary for humans/CI.
+
+### 11.10 Phase 10 — UX & Developer Experience
+
+<a id="prd-phase-10"></a>
+
+**Status:** Partial. **Shipped:** Streaming chat, code blocks (assistant fenced **`diff`** / **`patch`** blocks render with **+/-** tinting, copy, **collapsible** inline preview (header chevron), and a **full-diff** dialog — `ChatDiffFence.tsx` / `ChatMessage.tsx`), **⌘/Ctrl+Z** / **⌘/Ctrl+Shift+Z** documented in the **command palette** for **Monaco** (native undo stack) and the **chat textarea** (browser undo) — not a unified “undo last agent mutation” stack; **banner** after reload if **`pagehide`** occurred during an active agent stream (`useAgentStreamInterruptedNotice`, `agentStreamInterruptedNotice.ts` — informational, not SSE resumption), regenerate/rewrite, collapsible tool activity (**Tools** rows show **server-reported `elapsedMs`** per finished tool via `tool_done` in `runAgent.ts` / `AgentToolActivity.tsx`), **session token totals** when the upstream model reports **`usage_metadata`** (`on_chat_model_end` → stream **`usage`** events; `chatStore.sessionTokenUsage`; badge under model selector in `ChatSidebar.tsx` — LangGraph agent path only; resets on New chat / Clear chat / delete active conversation), **“What is the agent doing?”** while streaming — native **`title`** plus a help icon tooltip on the **Generating** row (`ChatSidebar.tsx`), driven by `describeAgentLiveActivity` in `src/lib/agentActivitySummary.ts` (pending HITL / running tools / **`graph_phase`** hint / generic reasoning); a small **Model** / **Tool · …** badge beside **Responding…** reflects the latest **`graph_phase`** line from the TerminalAI agent stream (not emitted for plain Cline chat), clear/new chat; **clickable inline workspace paths** in assistant markdown (heuristic) open the **workspace editor** (`requestOpenEditorFile` / `workbenchStore`); **⌘/Ctrl+L** opens the agent panel, focuses chat, and **prepends the active workspace file path** to the input when a tab is open (`injectWorkspaceEditorFileContext`); **⌘/Ctrl+Backtick**, **⌘/Ctrl+B** (`useWorkbenchHotkeys`); **⌘/Ctrl+Shift+K** and **⌘/Ctrl+Shift+P** toggle the **command palette** (`KeyboardShortcutsDialog.tsx`, filterable list of shortcuts, quick actions, and terminal commands — including from inside the workspace editor); **⌘/Ctrl+K** toggles the same dialog when focus is **not** in `[data-terminalai-no-palette]` (workspace Monaco uses **⌘/Ctrl+K** for **agent chat with selection** — see §11.3); the palette includes **Run in terminal** actions (`npm test`, `npm run typecheck`, `npm run lint`, `npm run format`, `npm run build`, `git status`, **Commit & push (WIP message)** — `git add -A`, generic commit message, `git push`) via `pasteAndRun` on the focused terminal tab, plus **agent quick prompts** — **Write tests for this**, **Explain code / file**, **Generate docs for file**, **Find bugs in file** — each prefills chat (with the active workspace file noted when the editor has a tab open); **theme preference** dark / light / system (`color_scheme`) and **code font size** 10–22px (`code_font_size_px` on `app_prefs`) persisted in SQLite, surfaced under **API keys** → Appearance; **agent verbosity** (`agent_verbosity`), **optional project hints** (`agent_context_hints`, up to 4000 chars), and **Auto vs confirm mutations** (`agent_mode` / `agentAutoMode`: `agent_mode=0` / `agentAutoMode=false` means file and shell tools always enqueue HITL before running, in addition to `AGENT_REQUIRE_APPROVAL_*`) under **Agent behavior** in `ApiKeyModal.tsx`, with prompt hints in `server/agent/graph.ts` and runtime prefs via `loadAgentRuntimePrefs`. **PRD §4.2/§6 layout:** agent chat column is **450px** fixed at viewport **≥900px**; below 900px it is a **right slide-over** (max 450px) with a dimmed backdrop (`MainLayout.tsx`). **Gaps:** No Copilot-style **inline** ghost agent UI; no natural-language / intent-routed command palette (filter is substring match only); no separate docked quick-actions panel; path detection is heuristic-only; no font-family picker; chat sidebar body size not separately configurable.
+
+### 11.11 Phase 11 — Performance & Reliability
+
+<a id="prd-phase-11"></a>
+
+**Status:** Minimal. **Shipped:** `GET /api/health`, SQLite-backed session persistence; **agent chat POST** uses **retry + exponential backoff** on 408/429/502/503/504 and network errors (`fetchAgentStreamWithRetry` in `src/lib/agentStreamFetch.ts`); **streaming** shows partial assistant text as it arrives; after **~4s** of an active stream without completion, the chat footer adds a **slow provider / incremental text** note (`ChatSidebar.tsx`); **post-refresh notice** when the tab was unloaded during streaming (`sessionStorage` on **`pagehide`**, `ChatSidebar.tsx`) — explains truncated replies, **not** upstream stream resume; in **Vite dev only**, tool stream lines log to the console with **server `elapsedMs` on `tool_done` when present** (else client-side delta) via `withDevAgentStreamTelemetry`; **React error boundaries** around major panes — chat, workspace editor, and terminal (`UiErrorBoundary` in `MainLayout.tsx`, `TerminalOnlyPage.tsx`) with user **Try again** remount; **workspace editor auto-save** every 30s for **dirty** Monaco tabs (`WorkspaceEditorPanel.tsx` → `PUT /api/workspace/file`). **Gaps:** No formal latency SLOs, true **resume** of an interrupted provider stream, or mid-stream chunk retry; auto-save is editor-only (not a global “all files in repo” snapshot); not every leaf widget wrapped individually.
+
+### 11.12 Phase 12 — Security & Sandboxing
+
+<a id="prd-phase-12"></a>
+
+**Status:** Partial. **Shipped:** Workspace path sandbox (`server/lib/workspacePathSandbox.ts` and related), optional allowlists, HITL for writes/shell when configured, API key handling patterns; **grep_workspace_content** skips common secret env filenames (while leaving `.env.example` and similar searchable); **heuristic secret redaction** on LangGraph **tool_done** previews/errors (`server/lib/agentSecretLeak.ts`, `runAgent.ts`), on **read_workspace_file** (full file and line-range reads) and **get_workspace_file_outline** output (`workspaceTools.ts`, `outlineWorkspaceTool.ts`), and on **HITL approve** JSON `message` (`server/routes/agentHitl.ts`), with optional **secretHint** in the stream for the tool UI (`streamProtocol.ts`, `AgentToolActivity.tsx`); redacted reads append a short **Server note** for the model; disable with **AGENT_DISABLE_SECRET_LEAK_SCAN**. **Gaps:** No Docker/WebContainer command sandbox, no persisted audit log of every tool call, no scanning of free-form assistant chat tokens (on-disk file bytes are unchanged; only tool-returned strings are redacted).

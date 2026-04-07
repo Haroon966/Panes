@@ -1,10 +1,11 @@
 Third-party software
 ====================
 
-This repository may include a **git submodule** at `vendor/cline` pointing to the
-[Cline](https://github.com/cline/cline) project (Apache License 2.0).
+You may keep a **local clone** of [Cline](https://github.com/cline/cline) at `vendor/cline`
+(Apache License 2.0). That directory is **gitignored** in this repository; it is not
+vendored or distributed as part of TerminalAI.
 
-TerminalAI is an independent project. Inclusion of the submodule is for **reference,
+TerminalAI is an independent project. A local Cline checkout is for **reference,
 architecture study, and attribution** only. It does not imply that the VS Code
 Cline extension is bundled or that TerminalAI is endorsed by Cline Bot Inc.
 

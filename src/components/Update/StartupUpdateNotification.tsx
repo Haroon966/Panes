@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 const DISMISS_STORAGE_KEY = 'terminalai-dismissed-update';
 const UP_TO_DATE_MS = 2200;
@@ -35,7 +36,10 @@ function readDismissed(latest: string | null): boolean {
   }
 }
 
-export function StartupUpdateOverlay() {
+/**
+ * Non-blocking update notice: checks on startup and shows a corner card instead of a full-screen overlay.
+ */
+export function StartupUpdateNotification() {
   const localVersion = import.meta.env.VITE_APP_VERSION || '';
   const [phase, setPhase] = useState<Phase>(() => (localVersion ? 'checking' : 'ready'));
   const [payload, setPayload] = useState<UpdateCheckResponse | null>(null);
@@ -141,19 +145,23 @@ export function StartupUpdateOverlay() {
 
   return (
     <div
-      className="fixed inset-0 z-[500] flex items-center justify-center bg-terminalai-base/92 p-6 text-terminalai-text backdrop-blur-sm"
-      role="alertdialog"
-      aria-modal="true"
-      aria-busy={phase === 'checking' || phase === 'installing'}
+      className="pointer-events-none fixed bottom-4 left-4 z-[100] flex max-w-md flex-col gap-2 p-0"
+      role="region"
       aria-label="App update"
+      aria-busy={phase === 'checking' || phase === 'installing'}
     >
-      <div className="w-full max-w-md rounded-xl border border-terminalai-border bg-terminalai-surface px-6 py-6 shadow-xl">
+      <div
+        className={cn(
+          'pointer-events-auto rounded-xl border border-terminalai-border bg-terminalai-surface px-4 py-3 shadow-xl backdrop-blur-sm',
+          phase === 'checking' && 'py-3',
+        )}
+      >
         {phase === 'checking' ? (
-          <div className="flex flex-col items-center gap-4 text-center">
-            <Loader2 className="size-10 animate-spin text-terminalai-accent" aria-hidden />
-            <div>
+          <div className="flex items-center gap-3">
+            <Loader2 className="size-5 shrink-0 animate-spin text-terminalai-accent" aria-hidden />
+            <div className="min-w-0">
               <p className="text-sm font-medium">Checking for updates</p>
-              <p className="mt-1 text-xs text-terminalai-muted">
+              <p className="mt-0.5 text-2xs text-terminalai-muted">
                 Comparing your version with the latest release…
               </p>
             </div>
@@ -161,41 +169,51 @@ export function StartupUpdateOverlay() {
         ) : null}
 
         {phase === 'uptodate' ? (
-          <div className="text-center">
+          <div>
             <p className="text-sm font-medium">You&apos;re up to date</p>
-            <p className="mt-2 text-xs text-terminalai-muted">
-              Version {localVersion} is the latest. Continuing…
+            <p className="mt-1 text-2xs text-terminalai-muted">
+              Version {localVersion} is the latest.
             </p>
           </div>
         ) : null}
 
         {phase === 'check_error' ? (
-          <div className="text-center">
+          <div>
             <p className="text-sm font-medium">Couldn&apos;t check for updates</p>
-            <p className="mt-2 text-xs text-terminalai-muted">
+            <p className="mt-1 text-2xs text-terminalai-muted">
               You can keep using the app. We&apos;ll try again next time.
             </p>
           </div>
         ) : null}
 
         {phase === 'update' && payload ? (
-          <div className="flex flex-col gap-4">
-            <div>
-              <p className="text-sm font-medium">Update available</p>
-              <p className="mt-2 text-xs leading-relaxed text-terminalai-muted">
-                Version <span className="text-terminalai-text">{payload.latestVersion}</span> is
-                available. You are on{' '}
-                <span className="text-terminalai-text">{localVersion}</span>.
-              </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Update available</p>
+                <p className="mt-1 text-2xs leading-relaxed text-terminalai-muted">
+                  Version <span className="text-terminalai-text">{payload.latestVersion}</span> is
+                  available. You are on{' '}
+                  <span className="text-terminalai-text">{localVersion}</span>.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="-m-1 shrink-0 rounded-md p-1 text-terminalai-muted hover:bg-terminalai-overlay hover:text-terminalai-text"
+                aria-label="Dismiss update notice"
+                onClick={skipUpdate}
+              >
+                <X className="size-4" aria-hidden />
+              </button>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
               {payload.installSupported ? (
-                <Button type="button" className="w-full sm:w-auto" onClick={() => void runInstall()}>
+                <Button type="button" size="sm" className="w-full sm:w-auto" onClick={() => void runInstall()}>
                   Install update
                 </Button>
               ) : null}
               {payload.releaseUrl ? (
-                <Button type="button" variant="outline" className="w-full sm:w-auto" asChild>
+                <Button type="button" size="sm" variant="outline" className="w-full sm:w-auto" asChild>
                   <a href={payload.releaseUrl} target="_blank" rel="noopener noreferrer">
                     View release
                   </a>
@@ -203,6 +221,7 @@ export function StartupUpdateOverlay() {
               ) : null}
               <Button
                 type="button"
+                size="sm"
                 variant="ghost"
                 className="w-full text-terminalai-muted sm:ml-auto sm:w-auto"
                 onClick={skipUpdate}
@@ -223,11 +242,11 @@ export function StartupUpdateOverlay() {
         ) : null}
 
         {phase === 'installing' ? (
-          <div className="flex flex-col items-center gap-4 text-center">
-            <Loader2 className="size-10 animate-spin text-terminalai-accent" aria-hidden />
-            <div>
+          <div className="flex items-center gap-3">
+            <Loader2 className="size-5 shrink-0 animate-spin text-terminalai-accent" aria-hidden />
+            <div className="min-w-0">
               <p className="text-sm font-medium">Installing update</p>
-              <p className="mt-1 text-xs text-terminalai-muted">
+              <p className="mt-0.5 text-2xs text-terminalai-muted">
                 Running the configured update command. This may take a few minutes.
               </p>
             </div>
@@ -235,36 +254,36 @@ export function StartupUpdateOverlay() {
         ) : null}
 
         {phase === 'after_install' && installOutcome ? (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-3">
             {installOutcome.ok ? (
               <>
                 <p className="text-sm font-medium">Update finished</p>
-                <p className="text-xs text-terminalai-muted">
+                <p className="text-2xs text-terminalai-muted">
                   Restart the app (or refresh and restart the dev server) so the new version loads.
                 </p>
               </>
             ) : (
               <>
                 <p className="text-sm font-medium text-terminalai-danger">Install failed</p>
-                <pre className="max-h-40 overflow-auto rounded-md border border-terminalai-border bg-terminalai-base p-2 text-2xs text-terminalai-muted whitespace-pre-wrap">
+                <pre className="max-h-32 overflow-auto rounded-md border border-terminalai-border bg-terminalai-base p-2 text-2xs text-terminalai-muted whitespace-pre-wrap">
                   {installOutcome.output || 'Unknown error'}
                 </pre>
               </>
             )}
             <div className="flex flex-col gap-2 sm:flex-row">
               {installOutcome.ok ? (
-                <Button type="button" onClick={() => setPhase('ready')}>
+                <Button type="button" size="sm" onClick={() => setPhase('ready')}>
                   Continue
                 </Button>
               ) : (
                 <>
-                  <Button type="button" onClick={() => setPhase('update')}>
+                  <Button type="button" size="sm" onClick={() => setPhase('update')}>
                     Back
                   </Button>
-                  <Button type="button" variant="outline" onClick={() => void runInstall()}>
+                  <Button type="button" size="sm" variant="outline" onClick={() => void runInstall()}>
                     Retry
                   </Button>
-                  <Button type="button" variant="ghost" className="text-terminalai-muted" onClick={skipUpdate}>
+                  <Button type="button" size="sm" variant="ghost" className="text-terminalai-muted" onClick={skipUpdate}>
                     Skip for now
                   </Button>
                 </>

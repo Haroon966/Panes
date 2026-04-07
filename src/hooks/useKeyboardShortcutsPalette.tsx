@@ -3,17 +3,27 @@ import { Keyboard } from 'lucide-react';
 import { KeyboardShortcutsDialog } from '@/components/Chat/KeyboardShortcutsDialog';
 import { Button } from '@/components/ui/button';
 
-/** Global Ctrl/⌘+K toggles shortcuts; trigger button opens the same dialog. */
+/**
+ * - Ctrl/⌘+Shift+K / Ctrl/⌘+Shift+P — toggles command palette (shortcuts & actions) everywhere.
+ * - Ctrl/⌘+K — toggles the same except when focus is inside `[data-terminalai-no-palette]`
+ *   (workspace Monaco uses ⌘/Ctrl+K for “ask agent about selection”).
+ */
 export function useKeyboardShortcutsPalette(onOpenApiKeys: () => void) {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented) return;
-      const k = e.key?.toLowerCase();
-      if (k !== 'k') return;
       if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
-      if (e.shiftKey) return;
+      const k = e.key?.toLowerCase();
+      if (e.shiftKey) {
+        if (k === 'k' || k === 'p') {
+          e.preventDefault();
+          setOpen((v) => !v);
+        }
+        return;
+      }
+      if (k !== 'k') return;
       const t = e.target as HTMLElement | null;
       if (t?.closest?.('[data-terminalai-no-palette]')) return;
       e.preventDefault();

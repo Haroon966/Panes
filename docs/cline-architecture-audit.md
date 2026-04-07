@@ -1,6 +1,6 @@
 # Cline upstream architecture audit (TerminalAI)
 
-**Submodule:** `vendor/cline` pinned to tag `v3.77.0` (see `.gitmodules`).  
+**Local reference:** Optionally clone upstream into `vendor/cline` (see [vendor/README.md](../vendor/README.md)); the path is gitignored and not shipped with the repo.  
 **Upstream:** https://github.com/cline/cline — Apache-2.0.
 
 ## Entrypoints
@@ -15,7 +15,7 @@
 
 ## `vscode` API coupling
 
-Roughly **70+ TypeScript files** under `vendor/cline` import `vscode` (extension host,
+Roughly **70+ TypeScript files** under a local `vendor/cline` checkout import `vscode` (extension host,
 `hosts/vscode/hostbridge/*`, webview providers, tests). The bulk of agent UX and
 workspace integration is **not** portable to a browser + Express app without
 reimplementing those APIs.
@@ -31,12 +31,12 @@ and related). A **future sidecar** integration would likely:
 
 1. Run a small Node process that speaks the same protos, **or**
 2. Use upstream’s CLI if it exposes a stable local socket — **requires per-version
-   verification** inside `vendor/cline`.
+   verification** inside your `vendor/cline` clone.
 
 This is **not** wired in TerminalAI today; the production path is OpenAI-compatible
 HTTP (`/api/agent/cline`).
 
 ## Recommendation
 
-Keep `vendor/cline` as a **read-only submodule** for diffs and docs. Implement
+Keep an optional **read-only** clone at `vendor/cline` for diffs and docs. Implement
 Cline-like behavior in TerminalAI’s own `server/agent/` and React UI.

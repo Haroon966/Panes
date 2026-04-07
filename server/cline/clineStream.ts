@@ -36,6 +36,8 @@ export type ClineProxyInput = {
   clineAgentId?: string;
   authToken?: string;
   signal?: AbortSignal;
+  /** Ephemeral; merged into the leading system context for this request only. */
+  regenerationHint?: string;
 };
 
 export function getDefaultClineChatPath(): string {
@@ -268,6 +270,13 @@ function augmentMessages(input: ClineProxyInput): { role: string; content: strin
   }
   if (input.errorContext) {
     parts.push('User-attached error:\n```\n' + input.errorContext + '\n```');
+  }
+  const rh = input.regenerationHint?.trim();
+  if (rh) {
+    parts.push(
+      '[One-time instruction for this reply only — apply it to your next response, then disregard for later turns.]\n' +
+        rh
+    );
   }
   const sys = parts.length ? [{ role: 'system' as const, content: parts.join('\n\n') }] : [];
   return [...sys, ...input.messages];

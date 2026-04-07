@@ -1,7 +1,13 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import * as persistenceApi from '@/lib/persistenceApi';
-import type { AppPrefsResponse, PrefsAgentBackend } from '@/lib/persistenceApi';
+import type {
+  AppPrefsResponse,
+  PrefsAgentBackend,
+  PrefsAgentVerbosity,
+} from '@/lib/persistenceApi';
 import { terminalPersistedStateSchema } from '@/lib/terminalStateSchema';
+import { clampCodeFontSizePx, CODE_FONT_SIZE_DEFAULT } from '@/lib/codeFontSize';
+import { applyTerminalaiThemeDataset, resolveEffectiveTerminalTheme } from '@/lib/terminalaiTheme';
 import { buildPutAppPrefsPayload, useChatStore } from '@/store/chatStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTerminalStore } from '@/store/terminalStore';
@@ -28,7 +34,28 @@ const FALLBACK_KEY_PRESENCE: AppPrefsResponse['keyPresence'] = {
   custom: false,
 };
 
+function normalizePrefsAgentVerbosity(v: unknown): PrefsAgentVerbosity {
+  return v === 'concise' || v === 'detailed' || v === 'step_by_step' ? v : 'detailed';
+}
+
 function hydrateSettingsFromPrefs(p: AppPrefsResponse): void {
+  const cs = p.colorScheme;
+  const colorScheme = cs === 'light' || cs === 'system' ? cs : 'dark';
+  const effectiveTerminalTheme = resolveEffectiveTerminalTheme(colorScheme);
+  applyTerminalaiThemeDataset(effectiveTerminalTheme);
+  const codeFontSizePx =
+    typeof p.codeFontSizePx === 'number'
+      ? clampCodeFontSizePx(p.codeFontSizePx)
+      : CODE_FONT_SIZE_DEFAULT;
+  const agentVerbosity = normalizePrefsAgentVerbosity(p.agentVerbosity);
+  const hintsRaw = typeof p.agentContextHints === 'string' ? p.agentContextHints : '';
+  const agentContextHints =
+    hintsRaw.replace(/\r\n/g, '\n').length > 4000
+      ? hintsRaw.replace(/\r\n/g, '\n').slice(0, 4000)
+      : hintsRaw.replace(/\r\n/g, '\n');
+  const agentAutoMode = p.agentAutoMode !== false;
+  const agentPinnedPaths = Array.isArray(p.agentPinnedPaths) ? p.agentPinnedPaths : [];
+  const workspaceFormatOnSave = p.workspaceFormatOnSave === true;
   useSettingsStore.setState({
     selectedProvider: p.selectedProvider,
     selectedModel: p.selectedModel,
@@ -42,6 +69,14 @@ function hydrateSettingsFromPrefs(p: AppPrefsResponse): void {
     clineAutoFallbackOnError: p.clineAutoFallbackOnError ?? true,
     agentPanelOpen: p.agentPanelOpen ?? true,
     historyPanelOpen: p.historyPanelOpen ?? true,
+    colorScheme,
+    effectiveTerminalTheme,
+    codeFontSizePx,
+    agentVerbosity,
+    agentContextHints,
+    agentAutoMode,
+    agentPinnedPaths,
+    workspaceFormatOnSave,
   });
 }
 
@@ -108,6 +143,19 @@ async function migrateLegacyTerminalAiSettings(prefs: AppPrefsResponse): Promise
       clineAutoFallbackOnError: st.clineAutoFallbackOnError ?? prefs.clineAutoFallbackOnError ?? true,
       agentPanelOpen: st.agentPanelOpen ?? prefs.agentPanelOpen ?? true,
       historyPanelOpen: st.historyPanelOpen ?? prefs.historyPanelOpen ?? true,
+      colorScheme: prefs.colorScheme ?? 'dark',
+      codeFontSizePx:
+        typeof prefs.codeFontSizePx === 'number'
+          ? clampCodeFontSizePx(prefs.codeFontSizePx)
+          : CODE_FONT_SIZE_DEFAULT,
+      agentVerbosity: normalizePrefsAgentVerbosity(prefs.agentVerbosity),
+      agentContextHints:
+        typeof prefs.agentContextHints === 'string'
+          ? prefs.agentContextHints.replace(/\r\n/g, '\n').slice(0, 4000)
+          : '',
+      agentAutoMode: prefs.agentAutoMode !== false,
+      agentPinnedPaths: Array.isArray(prefs.agentPinnedPaths) ? prefs.agentPinnedPaths : [],
+      workspaceFormatOnSave: prefs.workspaceFormatOnSave === true,
       ...(Object.keys(apiKeys).length > 0 ? { apiKeys } : {}),
     });
 
@@ -142,6 +190,13 @@ function prefsSyncSnapshot(
     clineAutoFallbackOnError: s.clineAutoFallbackOnError,
     agentPanelOpen: s.agentPanelOpen,
     historyPanelOpen: s.historyPanelOpen,
+    colorScheme: s.colorScheme,
+    codeFontSizePx: s.codeFontSizePx,
+    agentVerbosity: s.agentVerbosity,
+    agentContextHints: s.agentContextHints,
+    agentAutoMode: s.agentAutoMode,
+    agentPinnedPaths: s.agentPinnedPaths,
+    workspaceFormatOnSave: s.workspaceFormatOnSave,
     activeConversationId,
   });
 }
@@ -287,6 +342,15 @@ export function PersistenceProvider({ children }: { children: ReactNode }) {
     });
 
     return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onOsTheme = () => {
+      useSettingsStore.getState().refreshEffectiveThemeFromSystem();
+    };
+    mq.addEventListener('change', onOsTheme);
+    return () => mq.removeEventListener('change', onOsTheme);
   }, []);
 
   return (

@@ -4,10 +4,11 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useTerminalSplit } from '@/hooks/useTerminalSplit';
-import { useTerminalStore } from '@/store/terminalStore';
+import { TERMINAL_TAB_NAME_PRESETS, useTerminalStore } from '@/store/terminalStore';
 
 export function TerminalSplitDropdown() {
   const { layout, splitHorizontal, splitVertical, closeSplit } = useTerminalSplit();
@@ -58,8 +59,20 @@ export function TerminalSplitDropdown() {
           }}
         >
           <SquarePlus className="h-4 w-4" />
-          New tab
+          New tab (numbered)
         </DropdownMenuItem>
+        {TERMINAL_TAB_NAME_PRESETS.map((name) => (
+          <DropdownMenuItem
+            key={name}
+            onSelect={() => {
+              addSession(name);
+            }}
+          >
+            <SquarePlus className="h-4 w-4" />
+            New tab: {name}
+          </DropdownMenuItem>
+        ))}
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={openNewWindow}>
           <Monitor className="h-4 w-4" />
           Open in new window

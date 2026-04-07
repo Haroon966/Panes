@@ -2,17 +2,23 @@ import { Router, type Request, type Response } from 'express';
 import { executeApproved } from '../agent/executeApproval';
 import { rejectPending } from '../agent/pendingApprovalsStore';
 import { requireApprovalForShell, requireApprovalForWrites, shellToolEnabled } from '../agent/approvalEnv';
+import { loadAgentRuntimePrefs } from '../lib/agentStylePrefs';
 import type { AgentHitlStatusResponse } from '../agent/hitlTypes';
+import { redactLikelySecrets } from '../lib/agentSecretLeak';
 
 export const agentHitlRouter = Router();
 
 agentHitlRouter.get('/agent/hitl/status', (_req: Request, res: Response) => {
+  const prefs = loadAgentRuntimePrefs();
+  const writesNeed = requireApprovalForWrites() || !prefs.agentAutoMode;
+  let shell: string;
+  if (!shellToolEnabled()) shell = 'disabled';
+  else if (requireApprovalForShell() || !prefs.agentAutoMode) shell = 'approval';
+  else shell = 'auto';
   const body: AgentHitlStatusResponse = {
     supported: true,
     phase: 'writes_shell',
-    message: `Approvals: writes=${requireApprovalForWrites() ? 'required' : 'off'}, shell=${
-      shellToolEnabled() ? (requireApprovalForShell() ? 'approval' : 'auto') : 'disabled'
-    }`,
+    message: `Approvals: writes_and_patches=${writesNeed ? 'required' : 'off'}, shell=${shell}`,
   };
   res.json(body);
 });
@@ -23,12 +29,15 @@ agentHitlRouter.post('/agent/hitl/approve', async (req: Request, res: Response) 
     res.status(400).json({ ok: false, error: 'approvalId required' });
     return;
   }
-  const result = await executeApproved(id);
+  const result = await executeApproved(id, {
+    clientWorkspaceDirtyPaths: req.body?.workspaceDirtyPaths,
+  });
   if (!result.ok) {
     res.status(400).json(result);
     return;
   }
-  res.json(result);
+  const { text } = redactLikelySecrets(result.message);
+  res.json({ ok: true, message: text });
 });
 
 agentHitlRouter.post('/agent/hitl/reject', (req: Request, res: Response) => {

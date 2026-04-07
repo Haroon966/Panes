@@ -1,0 +1,1 @@
+ALTER TABLE app_prefs ADD COLUMN code_font_size_px INTEGER NOT NULL DEFAULT 13;

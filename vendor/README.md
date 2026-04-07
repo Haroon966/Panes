@@ -1,18 +1,18 @@
 # Vendor mirrors
 
-## Cline (git submodule)
+## Cline (optional local clone)
 
-The [Cline](https://github.com/cline/cline) repository is included as a **git submodule**
-at `vendor/cline` (pinned in git to tag **`v3.77.0`**; see parent repo history).
-Licensed under **Apache-2.0**. TerminalAI is a separate project; see root **`NOTICE`**
-and **`docs/cline-architecture-audit.md`**.
-
-Initialize after clone:
+The [Cline](https://github.com/cline/cline) repository is **not** tracked in this repo (there is **no git submodule**; ignore any stale `.gitmodules` from older checkouts). Clone it locally when you want to compare upstream behavior, read extension code, or study UI patterns.
 
 ```bash
-git submodule update --init --recursive
-cd vendor/cline && git checkout v3.77.0   # if detached SHA differs
+git clone --depth 1 --branch main https://github.com/cline/cline.git vendor/cline
 ```
+
+For a stable snapshot, check out a tag after cloning (e.g. `git -C vendor/cline checkout v3.77.0`).
+
+Licensed under **Apache-2.0**. TerminalAI is a separate project; see root **`NOTICE`** and **`docs/cline-architecture-audit.md`**.
+
+The directory `vendor/cline/` is listed in `.gitignore`.
 
 ## Optional UI / terminal references (manual clone)
 

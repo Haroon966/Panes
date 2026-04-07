@@ -20,6 +20,7 @@ import { streamErrorToolHint } from '../agent/toolErrorHints';
 import { resolveEffectiveWorkspaceRoot } from '../agent/workspaceRoot';
 import { getClineLocalBaseUrlFromDb, resolveWorkspaceRootFromPrefs } from '../lib/appPrefs';
 import { createOpenAiCompatibleUpstreamChatModel } from '../lib/chatModelFactory';
+import { attachAgentTextStream, getChatMessagesValidationError } from './agentRequestShared';
 
 export const clineAgentRouter = Router();
 
@@ -103,10 +104,14 @@ clineAgentRouter.post('/agent/cline', async (req: Request, res: Response) => {
     errorContext?: string;
     workspaceRoot?: string;
     terminalSessionId?: string;
+    regenerationHint?: string;
+    /** Same as POST /api/agent — unsaved workspace editor paths (LangGraph tools path only). */
+    workspaceDirtyPaths?: unknown;
   };
 
-  if (!body?.messages?.length) {
-    res.status(400).json({ error: 'messages are required' });
+  const msgErr = getChatMessagesValidationError(body.messages);
+  if (msgErr) {
+    res.status(400).json({ error: msgErr });
     return;
   }
 
@@ -136,21 +141,12 @@ clineAgentRouter.post('/agent/cline', async (req: Request, res: Response) => {
     if (fromTags) model = fromTags;
   }
 
-  const ac = new AbortController();
-  const onResClose = () => {
-    if (!res.writableEnded) {
-      ac.abort();
-    }
-  };
-  const onReqAborted = () => ac.abort();
-  res.on('close', onResClose);
-  req.on('aborted', onReqAborted);
-
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('X-Accel-Buffering', 'no');
-
   const plainProxyOnly = process.env.CLINE_AGENT_DISABLE_TOOLS === '1';
+  const { signal, dispose } = attachAgentTextStream(
+    req,
+    res,
+    plainProxyOnly ? 'cline_proxy' : 'langgraph'
+  );
 
   const effectiveWorkspaceRoot = resolveEffectiveWorkspaceRoot({
     workspaceRootHint: resolveWorkspaceRootFromPrefs(body.workspaceRoot),
@@ -170,7 +166,8 @@ clineAgentRouter.post('/agent/cline', async (req: Request, res: Response) => {
         workspaceRoot: effectiveWorkspaceRoot,
         clineAgentId: body.clineAgentId,
         authToken: getClineAuthToken(baseUrl),
-        signal: ac.signal,
+        signal,
+        regenerationHint: body.regenerationHint,
       })) {
         if (res.writableEnded) break;
         res.write(chunk);
@@ -190,7 +187,9 @@ clineAgentRouter.post('/agent/cline', async (req: Request, res: Response) => {
           terminalSessionId: body.terminalSessionId,
         },
         workspaceRootHint: resolveWorkspaceRootFromPrefs(body.workspaceRoot),
-        signal: ac.signal,
+        signal,
+        regenerationHint: body.regenerationHint,
+        workspaceDirtyPaths: body.workspaceDirtyPaths,
       })) {
         if (res.writableEnded) break;
         res.write(chunk);
@@ -227,7 +226,6 @@ clineAgentRouter.post('/agent/cline', async (req: Request, res: Response) => {
       res.end();
     }
   } finally {
-    res.off('close', onResClose);
-    req.off('aborted', onReqAborted);
+    dispose();
   }
 });

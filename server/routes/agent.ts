@@ -4,8 +4,35 @@ import { streamErrorToolHint } from '../agent/toolErrorHints';
 import { resolveAgentAuthFromPrefs, resolveWorkspaceRootFromPrefs } from '../lib/appPrefs';
 import { createChatModel } from '../lib/chatModelFactory';
 import type { ProviderId } from '../lib/modelFactory';
+import {
+  attachAgentTextStream,
+  CHAT_MESSAGES_REQUIRED,
+  getChatMessagesValidationError,
+} from './agentRequestShared';
 
 export const agentApiRouter = Router();
+
+/** Validates POST /api/agent body before streaming. Exported for unit tests. */
+export function getAgentPostBodyValidationError(body: unknown): string | null {
+  const b = body as {
+    messages?: unknown;
+    provider?: unknown;
+    model?: unknown;
+  };
+  const msgErr = getChatMessagesValidationError(b.messages);
+  if (msgErr) {
+    return msgErr === CHAT_MESSAGES_REQUIRED
+      ? 'messages, provider, and model are required'
+      : msgErr;
+  }
+  if (typeof b.provider !== 'string' || !b.provider) {
+    return 'messages, provider, and model are required';
+  }
+  if (typeof b.model !== 'string' || !b.model) {
+    return 'messages, provider, and model are required';
+  }
+  return null;
+}
 
 function isClientConfigError(e: unknown): boolean {
   if (!(e instanceof Error)) return false;
@@ -31,10 +58,15 @@ agentApiRouter.post('/agent', async (req: Request, res: Response) => {
     workspaceRoot?: string;
     /** Focused terminal tab; agent shell runs in that PTY when connected. */
     terminalSessionId?: string;
+    /** Ephemeral system instruction for this completion only (regenerate / rewrite response). */
+    regenerationHint?: string;
+    /** Client-reported paths with unsaved workspace editor buffers (optional). */
+    workspaceDirtyPaths?: unknown;
   };
 
-  if (!body?.messages?.length || !body.provider || !body.model) {
-    res.status(400).json({ error: 'messages, provider, and model are required' });
+  const bodyErr = getAgentPostBodyValidationError(req.body);
+  if (bodyErr) {
+    res.status(400).json({ error: bodyErr });
     return;
   }
 
@@ -60,21 +92,7 @@ agentApiRouter.post('/agent', async (req: Request, res: Response) => {
     return;
   }
 
-  const ac = new AbortController();
-  // Do NOT use req.on('close') for abort: for POST, 'close' fires when the body
-  // stream ends (normal), which would abort the graph before any tokens stream.
-  const onResClose = () => {
-    if (!res.writableEnded) {
-      ac.abort();
-    }
-  };
-  const onReqAborted = () => ac.abort();
-  res.on('close', onResClose);
-  req.on('aborted', onReqAborted);
-
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('X-Accel-Buffering', 'no');
+  const { signal, dispose } = attachAgentTextStream(req, res, 'langgraph');
 
   try {
     for await (const chunk of streamAgentPlainText({
@@ -87,7 +105,9 @@ agentApiRouter.post('/agent', async (req: Request, res: Response) => {
         terminalSessionId: body.terminalSessionId,
       },
       workspaceRootHint: resolveWorkspaceRootFromPrefs(body.workspaceRoot),
-      signal: ac.signal,
+      signal,
+      regenerationHint: body.regenerationHint,
+      workspaceDirtyPaths: body.workspaceDirtyPaths,
     })) {
       if (res.writableEnded) break;
       res.write(chunk);
@@ -122,7 +142,6 @@ agentApiRouter.post('/agent', async (req: Request, res: Response) => {
       res.end();
     }
   } finally {
-    res.off('close', onResClose);
-    req.off('aborted', onReqAborted);
+    dispose();
   }
 });

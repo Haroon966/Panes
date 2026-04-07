@@ -1,7 +1,8 @@
-import { Check, Loader2, Plus, X } from 'lucide-react';
+import { Bot, Check, Loader2, Plus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useChatStore } from '@/store/chatStore';
 import { useTerminalStore } from '@/store/terminalStore';
 import type { TerminalStatusKind } from '@/utils/terminalSessionStatus';
 import { cn } from '@/lib/utils';
@@ -122,6 +123,9 @@ function TabStatusGlyph({
 
 export function TerminalTabBar() {
   const [, setTick] = useState(0);
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const activeToolCalls = useChatStore((s) => s.activeToolCalls);
+  const agentStreamShellSessionId = useChatStore((s) => s.agentStreamShellSessionId);
   const sessions = useTerminalStore((s) => s.sessions);
   const activeSessionId = useTerminalStore((s) => s.activeSessionId);
   const terminalSessionStatuses = useTerminalStore((s) => s.terminalSessionStatuses);
@@ -129,11 +133,19 @@ export function TerminalTabBar() {
     const k = terminalSessionStatuses[sess.id]?.kind;
     return k === 'running' || k === 'interactive';
   });
+  const agentShellBusy =
+    isStreaming &&
+    agentStreamShellSessionId != null &&
+    activeToolCalls.some(
+      (c) =>
+        c.toolName === 'run_workspace_command' &&
+        (c.phase === 'running' || c.phase === 'awaiting_approval')
+    );
   useEffect(() => {
-    if (!anyRunning) return;
+    if (!anyRunning && !agentShellBusy) return;
     const id = window.setInterval(() => setTick((n) => n + 1), 400);
     return () => window.clearInterval(id);
-  }, [anyRunning]);
+  }, [anyRunning, agentShellBusy]);
   const setActive = useTerminalStore((s) => s.setActive);
   const addSession = useTerminalStore((s) => s.addSession);
   const removeSession = useTerminalStore((s) => s.removeSession);
@@ -155,6 +167,14 @@ export function TerminalTabBar() {
               ? `${(elapsed / 1000).toFixed(1)}s`
               : `${Math.floor(elapsed / 1000)}s`
             : '';
+        const agentUsingTab =
+          isStreaming &&
+          tab.id === agentStreamShellSessionId &&
+          activeToolCalls.some(
+            (c) =>
+              c.toolName === 'run_workspace_command' &&
+              (c.phase === 'running' || c.phase === 'awaiting_approval')
+          );
 
         return (
           <Tooltip key={tab.id}>
@@ -166,6 +186,15 @@ export function TerminalTabBar() {
                 )}
               >
                 <TabStatusGlyph kind={kind} compact={!active} />
+                {agentUsingTab ? (
+                  <Bot
+                    className={cn(
+                      'shrink-0 text-terminalai-accentText',
+                      active ? 'h-3.5 w-3.5' : 'h-3 w-3'
+                    )}
+                    aria-hidden
+                  />
+                ) : null}
                 <button
                   type="button"
                   className="min-w-0 flex-1 truncate text-left"
@@ -199,6 +228,9 @@ export function TerminalTabBar() {
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs">
               <p className="font-medium">{tab.title}</p>
+              {agentUsingTab ? (
+                <p className="text-terminalai-accentText">Agent is running a command in this terminal</p>
+              ) : null}
               {(kind === 'running' || kind === 'interactive') && elapsedStr ? (
                 <p className="text-terminalai-muted">{elapsedStr}</p>
               ) : null}

@@ -1,7 +1,11 @@
 import type { ProviderId } from '@/types/models';
-import type { ChatMessage } from '@/types/chat';
+import type { ChatMessage, MessageAlternate } from '@/types/chat';
 
 export type PrefsAgentBackend = 'langchain' | 'cline';
+
+export type PrefsColorScheme = 'dark' | 'light' | 'system';
+
+export type PrefsAgentVerbosity = 'concise' | 'detailed' | 'step_by_step';
 
 export type HealthResponse = { ok: boolean; db?: boolean };
 
@@ -21,8 +25,23 @@ export type AppPrefsResponse = {
   clineAutoFallbackOnError: boolean;
   agentPanelOpen: boolean;
   historyPanelOpen: boolean;
+  /** Omitted if the API server predates the `color_scheme` column; client defaults to `dark`. */
+  colorScheme?: PrefsColorScheme;
+  /** Omitted if the API predates `code_font_size_px`; client defaults to 13. */
+  codeFontSizePx?: number;
+  /** Omitted if the API predates `agent_verbosity`; client defaults to `detailed`. */
+  agentVerbosity?: PrefsAgentVerbosity;
+  /** Omitted if the API predates `agent_context_hints`; client defaults to empty. */
+  agentContextHints?: string;
+  /** Omitted if the API predates exposure of `agent_mode`; client defaults to `true` (auto). */
+  agentAutoMode?: boolean;
+  /** Omitted if the API predates `agent_pinned_paths_json`; client defaults to `[]`. */
+  agentPinnedPaths?: string[];
+  /** Omitted if the API predates `workspace_format_on_save`; client defaults to `false`. */
+  workspaceFormatOnSave?: boolean;
 };
 
+/** Mirrors `PUT /api/prefs` (SQLite `app_prefs`). `agentBackend` and `clineModel` persist the chat agent mode and dedicated Cline model id. */
 export type PutAppPrefsPayload = {
   selectedProvider: ProviderId;
   selectedModel: string;
@@ -30,12 +49,23 @@ export type PutAppPrefsPayload = {
   agentBackend: PrefsAgentBackend;
   clineModel: string;
   customBaseUrl: string;
+  /** Working directory from the terminal (private OSC); not set from Manage API Keys. */
   workspaceRoot: string;
   clineLocalBaseUrl: string;
   clineAgentId: string;
   clineAutoFallbackOnError: boolean;
   agentPanelOpen: boolean;
   historyPanelOpen: boolean;
+  colorScheme: PrefsColorScheme;
+  codeFontSizePx: number;
+  agentVerbosity: PrefsAgentVerbosity;
+  agentContextHints: string;
+  /** When false, file/shell tools always require UI approval first. */
+  agentAutoMode: boolean;
+  /** Workspace-relative paths (max 8) included in the agent system prompt. */
+  agentPinnedPaths: string[];
+  /** Monaco formatDocument before manual workspace save (Ctrl+S); not used for timed auto-save. */
+  workspaceFormatOnSave: boolean;
   apiKeys?: Record<string, string>;
 };
 
@@ -92,18 +122,26 @@ export async function createConversation(title?: string | null): Promise<Convers
 export async function fetchMessages(conversationId: string): Promise<ChatMessage[]> {
   const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`);
   const data = await parseJson<{
-    messages: { id: string; role: ChatMessage['role']; content: string }[];
+    messages: {
+      id: string;
+      role: ChatMessage['role'];
+      content: string;
+      createdAt: number;
+      alternates?: MessageAlternate[];
+    }[];
   }>(res);
   return data.messages.map((m) => ({
     id: m.id,
     role: m.role,
     content: m.content,
+    createdAt: m.createdAt,
+    alternates: m.alternates?.length ? m.alternates : undefined,
   }));
 }
 
 export async function appendMessage(
   conversationId: string,
-  message: Pick<ChatMessage, 'id' | 'role' | 'content'>
+  message: Pick<ChatMessage, 'id' | 'role' | 'content'> & { alternates?: MessageAlternate[] }
 ): Promise<void> {
   const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: 'POST',
@@ -112,7 +150,59 @@ export async function appendMessage(
       id: message.id,
       role: message.role,
       content: message.content,
+      ...(message.alternates?.length ? { alternates: message.alternates } : {}),
     }),
+  });
+  await parseJson(res);
+}
+
+export async function patchMessage(
+  conversationId: string,
+  messageId: string,
+  body: {
+    content?: string;
+    alternates?: MessageAlternate[];
+    activateAlternateId?: string;
+  }
+): Promise<void> {
+  const res = await fetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages/${encodeURIComponent(messageId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+  await parseJson(res);
+}
+
+export async function clearConversationMessages(conversationId: string): Promise<void> {
+  const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
+    method: 'DELETE',
+  });
+  await parseJson(res);
+}
+
+export async function deleteConversationMessagesAfter(
+  conversationId: string,
+  afterMessageId: string
+): Promise<void> {
+  const q = new URLSearchParams({ afterMessageId });
+  const res = await fetch(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages?${q.toString()}`,
+    { method: 'DELETE' }
+  );
+  await parseJson(res);
+}
+
+export async function patchConversation(
+  conversationId: string,
+  patch: { title: string }
+): Promise<void> {
+  const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
   });
   await parseJson(res);
 }

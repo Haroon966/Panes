@@ -3,7 +3,7 @@ import path from 'node:path';
 import { tool } from '@langchain/core/tools';
 import { z } from 'zod';
 import { getPtySession } from '../ptySessionRegistry';
-import { requireApprovalForShell, shellToolEnabled } from './approvalEnv';
+import { agentReadOnlyMode, requireApprovalForShell, shellToolEnabled } from './approvalEnv';
 import { runIntegratedPtyCommand } from './ptyIntegratedCommand';
 import { registerPendingShell } from './pendingApprovalsStore';
 
@@ -103,12 +103,15 @@ export async function executeShellCommand(
 
 export function createShellTools(
   workspaceRootAbs: string,
-  opts?: { terminalSessionId?: string }
+  opts?: { terminalSessionId?: string; userAlwaysConfirmMutations?: boolean }
 ) {
   if (!shellToolEnabled()) return [];
+  if (agentReadOnlyMode()) return [];
 
   const root = path.resolve(workspaceRootAbs);
   const terminalSessionId = opts?.terminalSessionId;
+  const shellNeedApproval =
+    !!opts?.userAlwaysConfirmMutations || requireApprovalForShell();
 
   return [
     tool(
@@ -122,7 +125,7 @@ export function createShellTools(
 
         const preview = argv.join(' ');
 
-        if (requireApprovalForShell()) {
+        if (shellNeedApproval) {
           const id = registerPendingShell({
             workspaceRootAbs: root,
             argv,

@@ -74,6 +74,8 @@ Optional — reference sources for chat/terminal UI (see CHECKLIST Phase 2): fol
 - **Browser-only dev:** `npm run dev:web` (same as `npm run dev:all`) — Vite + API; open [http://localhost:5173](http://localhost:5173).
 - **API only:** `npm run dev:server` — [http://localhost:3001](http://localhost:3001).
 
+By default the API binds to **loopback only** (`127.0.0.1`), so PTY and agent routes are not reachable from other machines on your LAN. To listen on all interfaces (e.g. remote browser dev), set **`HOST=0.0.0.0`** in `.env` and open the UI via your machine’s LAN IP; understand the security tradeoff.
+
 ### Desktop vs browser
 
 The API server (`node-pty`, `better-sqlite3`) runs as a **child `node` process**, not inside Electron’s renderer. You do **not** need `@electron/rebuild` for normal use. Run `npm run rebuild:electron` only if you change the app so native addons load from **Electron’s main process** (unusual for this repo).
@@ -136,7 +138,18 @@ docker compose up --build
 
 - API: `http://localhost:3001`
 - Vite dev client: `http://localhost:5173`  
-  Mounts `~/.config/fish` read-only into the server container for Fish config, and a named volume `terminalai-data` at `/root/.config/terminalai` for SQLite persistence (see [docker-compose.yml](docker-compose.yml)).
+  Mounts `~/.config/fish` read-only into the server container for Fish config, and a named volume `terminalai-data` at `/root/.config/terminalai` for SQLite persistence (see [docker-compose.yml](docker-compose.yml)). Compose sets **`HOST=0.0.0.0`** on the server service so the published port is reachable from the host (unlike the default loopback-only bind for local installs).
+
+---
+
+## AI client libraries (LangChain vs Vercel AI SDK)
+
+TerminalAI uses **two complementary stacks** today:
+
+- **LangGraph / LangChain** (`@langchain/*`) drives the default **TerminalAI** agent stream (`POST /api/agent`): tool binding, recursion limits, and workspace tools live under [`server/agent/`](server/agent/).
+- **Vercel AI SDK** (`ai`, `@ai-sdk/*`) is available for **provider-style** calls and patterns that fit that API; it is not the primary path for the LangGraph agent loop.
+
+Keeping both is intentional while features evolve; prefer extending **one** path for new agent behavior unless there is a clear reason to use the other.
 
 ---
 
@@ -148,6 +161,7 @@ See `.env.example` for all options. Key ones:
 |---|---|---|
 | `SHELL_DEFAULT` | Default shell to spawn | `fish` |
 | `PORT` | Server port | `3001` |
+| `HOST` | Bind address (`127.0.0.1` = loopback only; `0.0.0.0` = all interfaces) | `127.0.0.1` |
 | `OPENAI_API_KEY` | Optional server-side OpenAI key | — |
 | `ANTHROPIC_API_KEY` | Optional server-side Anthropic key | — |
 | `GOOGLE_API_KEY` | Optional server-side Google key | — |
@@ -160,7 +174,7 @@ See `.env.example` for all options. Key ones:
 | `TERMINALAI_DATA_DIR` | Directory for SQLite file (`terminalai.db`) | `~/.config/terminalai` |
 | `TERMINALAI_DB_PATH` | Full path to SQLite file (overrides data dir) | — |
 
-**Persistence:** The API server stores chat history, terminal tab layout, and non-secret settings (provider, model, agent mode) in SQLite. API keys and custom base URLs remain in the browser (`localStorage`). `GET /api/health` includes `"db": true` when the database is reachable.
+**Persistence:** The API server stores chat history, terminal tab layout, and non-secret settings (provider, model, agent mode) in SQLite. The **working directory** for the agent/workspace editor is stored in the same DB (`workspace_root`): it is updated when you `cd` in the focused terminal (Fish/bash shell integration emits a private OSC after each command), reloaded on startup, and used as the initial cwd for new PTY tabs when that path still exists. It is not editable from the API keys dialog. API keys and custom base URLs remain in the browser (`localStorage`). `GET /api/health` includes `"db": true` when the database is reachable.
 
 Inspect the DB locally:
 
@@ -174,24 +188,26 @@ You can also add API keys in the UI via ⚙ → Manage API Keys.
 
 ## Cline agent (HTTP integration)
 
-TerminalAI can drive chat through an **OpenAI-compatible** upstream (same shape as Cline’s local stack: typically Ollama or LM Studio at `/v1/chat/completions`). This is **not** the VS Code Cline extension; it is a first-class HTTP path in this app, with upstream [Cline](https://github.com/cline/cline) used as **reference** (see [NOTICE](NOTICE) and `vendor/cline`).
+TerminalAI can drive chat through an **OpenAI-compatible** upstream (same shape as Cline’s local stack: typically Ollama or LM Studio at `/v1/chat/completions`). This is **not** the VS Code Cline extension; it is a first-class HTTP path in this app, with upstream [Cline](https://github.com/cline/cline) used as **reference** (see [NOTICE](NOTICE); optional clone at `vendor/cline` per [vendor/README.md](vendor/README.md)).
 
 **API (server):**
 
 - `GET /api/agent/cline/options` — base URL resolution, `upstreamKind`, suggested model hints
 - `GET /api/agent/cline/models` — list models from the resolved upstream (optional `?clineLocalBaseUrl=`)
 - `GET /api/agent/cline/health` — quick readiness check
-- `POST /api/agent/cline` — non-streaming proxy; body may include `clineModel` for the dedicated Cline model when the UI model is a cloud id
+- `POST /api/agent/cline` — **streaming** `text/plain` response (same framing as `/api/agent`). By default it runs the **same LangGraph agent** as TerminalAI (tools, `TERMINALAI_EVENT:` tool rows, and HITL) with a local **OpenAI-compatible** chat model (Ollama / LM Studio / etc.). Body may include `clineModel` for the dedicated Cline model when the UI model is a cloud id. If `CLINE_AGENT_DISABLE_TOOLS=1`, the server uses a **plain HTTP proxy** to the upstream only (no tools or `TERMINALAI_EVENT:` lines). Responses include `X-TerminalAI-Stream-Kind: langgraph` or `cline_proxy` for debugging.
 
-**Environment:** See `.env.example` (`CLINE_LOCAL_BASE_URL`, `CLINE_DEFAULT_MODEL`, `CLINE_CHAT_PATH`, `OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`, etc.). If `CLINE_LOCAL_BASE_URL` is unset, the server falls back to `OLLAMA_BASE_URL` then `LMSTUDIO_BASE_URL`.
+**Environment:** See `.env.example` (`CLINE_LOCAL_BASE_URL`, `CLINE_DEFAULT_MODEL`, `CLINE_CHAT_PATH`, `CLINE_AGENT_DISABLE_TOOLS`, `OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`, etc.). If `CLINE_LOCAL_BASE_URL` is unset, the server falls back to `OLLAMA_BASE_URL` then `LMSTUDIO_BASE_URL`.
 
 **UI:** Choose **Cline** as the agent backend in chat settings. Pick a **Cline model** from the dropdown (from `/api/agent/cline/models`). **Auto-switch to LangChain on error** is configurable in Manage API Keys.
+
+The chat UI sends **`workspaceRoot`** (live cwd hint), **`terminalSessionId`** when the shell tab is connected, and **`clineLocalBaseUrl`** when set in ⚙, so agent tools and upstream resolution match the workspace editor and settings without waiting only on SQLite prefs.
 
 **Persistence:** `agent_backend` and `cline_model` can be stored in SQLite app prefs (see `server/db/migrations/`).
 
 **Docker / Ollama on the host:** From inside a container, `localhost` is the container itself. Point Ollama with e.g. `OLLAMA_BASE_URL=http://host.docker.internal:11434` (or your LAN IP) so the API can reach the host.
 
-**Reference submodule:** `git submodule update --init vendor/cline` (pinned tag). Details in [vendor/README.md](vendor/README.md). Architecture notes: [docs/cline-architecture-audit.md](docs/cline-architecture-audit.md), capability matrix: [docs/cline-capability-matrix.md](docs/cline-capability-matrix.md).
+**Upstream source (optional):** clone [Cline](https://github.com/cline/cline) into `vendor/cline` for local reference — see [vendor/README.md](vendor/README.md). Architecture notes: [docs/cline-architecture-audit.md](docs/cline-architecture-audit.md), capability matrix: [docs/cline-capability-matrix.md](docs/cline-capability-matrix.md). Rich in-chat **tool activity** (collapsible tool rows, inline approvals) applies to **`POST /api/agent`** and to **`POST /api/agent/cline` with default settings** (LangGraph). It does **not** apply when `CLINE_AGENT_DISABLE_TOOLS=1` (plain upstream proxy only).
 
 **Tests:** `npm run test:cline-resolve` (URL/kind/model resolution helpers).
 

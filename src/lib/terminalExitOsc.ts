@@ -3,6 +3,7 @@
  * TerminalAI private OSC (stripped client-side before xterm paint):
  * - ESC ] 773 ; exit ; <code> BEL — fish/bash integration (command exit code)
  * - ESC ] 773 ; tab ; <base64 utf-8> BEL — rename tab (`terminalai-tab-name` / `terminalai_tab_name`)
+ * - ESC ] 773 ; pwd ; <base64 utf-8 path> BEL — physical cwd after each command (persisted workspace)
  */
 export interface ExitOscCarry {
   pending: string;
@@ -27,7 +28,7 @@ function decodeBase64Utf8(b64: string): string | null {
   }
 }
 
-const PRIVATE_OSC_RE = /\x1b\]773;(exit|tab);([^;\x07]*);\x07/g;
+const PRIVATE_OSC_RE = /\x1b\]773;(exit|tab|pwd);([^;\x07]*);\x07/g;
 
 /**
  * Remove TerminalAI private OSC sequences from a PTY chunk. Handles sequences split across WebSocket frames.
@@ -35,11 +36,12 @@ const PRIVATE_OSC_RE = /\x1b\]773;(exit|tab);([^;\x07]*);\x07/g;
 export function stripTerminalAiExitOsc(
   chunk: string,
   carry: ExitOscCarry
-): { text: string; exitCodes: number[]; tabTitles: string[] } {
+): { text: string; exitCodes: number[]; tabTitles: string[]; cwdPaths: string[] } {
   const s = carry.pending + chunk;
   carry.pending = '';
   const exitCodes: number[] = [];
   const tabTitles: string[] = [];
+  const cwdPaths: string[] = [];
   let out = '';
   let last = 0;
   let m: RegExpExecArray | null;
@@ -50,7 +52,10 @@ export function stripTerminalAiExitOsc(
       exitCodes.push(parseInt(m[2], 10));
     } else {
       const decoded = decodeBase64Utf8(m[2]);
-      if (decoded !== null) tabTitles.push(decoded);
+      if (decoded !== null) {
+        if (m[1] === 'tab') tabTitles.push(decoded);
+        else cwdPaths.push(decoded);
+      }
     }
     last = m.index + m[0].length;
   }
@@ -61,5 +66,5 @@ export function stripTerminalAiExitOsc(
     tail = tail.slice(0, -incomplete[0].length);
   }
   out += tail;
-  return { text: out, exitCodes, tabTitles };
+  return { text: out, exitCodes, tabTitles, cwdPaths };
 }

@@ -20,7 +20,54 @@ export type PendingShellEntry = {
   createdAt: number;
 };
 
-export type PendingEntry = PendingWriteEntry | PendingShellEntry;
+export type PendingPatchEntry = {
+  kind: 'patch';
+  id: string;
+  workspaceRootAbs: string;
+  relative_path: string;
+  old_string: string;
+  new_string: string;
+  replace_all: boolean;
+  createdAt: number;
+};
+
+export type PendingDeleteEntry = {
+  kind: 'delete';
+  id: string;
+  workspaceRootAbs: string;
+  relative_path: string;
+  /** When true, allow deleting an empty directory; otherwise only regular files. */
+  allow_empty_directory: boolean;
+  createdAt: number;
+};
+
+export type PendingCopyEntry = {
+  kind: 'copy';
+  id: string;
+  workspaceRootAbs: string;
+  source_path: string;
+  dest_path: string;
+  overwrite: boolean;
+  createdAt: number;
+};
+
+export type PendingMoveEntry = {
+  kind: 'move';
+  id: string;
+  workspaceRootAbs: string;
+  source_path: string;
+  dest_path: string;
+  overwrite: boolean;
+  createdAt: number;
+};
+
+export type PendingEntry =
+  | PendingWriteEntry
+  | PendingShellEntry
+  | PendingPatchEntry
+  | PendingDeleteEntry
+  | PendingCopyEntry
+  | PendingMoveEntry;
 
 const pending = new Map<string, PendingEntry>();
 
@@ -57,6 +104,60 @@ export function registerPendingShell(input: Omit<PendingShellEntry, 'id' | 'kind
   const id = randomUUID();
   const entry: PendingShellEntry = {
     kind: 'shell',
+    id,
+    ...input,
+    createdAt: Date.now(),
+  };
+  pending.set(id, entry);
+  return id;
+}
+
+export function registerPendingPatch(input: Omit<PendingPatchEntry, 'id' | 'kind' | 'createdAt'>): string {
+  sweepExpiredApprovals();
+  const id = randomUUID();
+  const entry: PendingPatchEntry = {
+    kind: 'patch',
+    id,
+    ...input,
+    createdAt: Date.now(),
+  };
+  pending.set(id, entry);
+  return id;
+}
+
+export function registerPendingDelete(
+  input: Omit<PendingDeleteEntry, 'id' | 'kind' | 'createdAt'>
+): string {
+  sweepExpiredApprovals();
+  const id = randomUUID();
+  const entry: PendingDeleteEntry = {
+    kind: 'delete',
+    id,
+    ...input,
+    createdAt: Date.now(),
+  };
+  pending.set(id, entry);
+  return id;
+}
+
+export function registerPendingCopy(input: Omit<PendingCopyEntry, 'id' | 'kind' | 'createdAt'>): string {
+  sweepExpiredApprovals();
+  const id = randomUUID();
+  const entry: PendingCopyEntry = {
+    kind: 'copy',
+    id,
+    ...input,
+    createdAt: Date.now(),
+  };
+  pending.set(id, entry);
+  return id;
+}
+
+export function registerPendingMove(input: Omit<PendingMoveEntry, 'id' | 'kind' | 'createdAt'>): string {
+  sweepExpiredApprovals();
+  const id = randomUUID();
+  const entry: PendingMoveEntry = {
+    kind: 'move',
     id,
     ...input,
     createdAt: Date.now(),

@@ -28,7 +28,8 @@ export function resolveAgentWorkspaceRoot(clientHint?: string): string {
 /**
  * Fallback workspace root when the integrated shell is unavailable: WebSocket disconnected,
  * session not registered, non-Linux host, or /proc cwd cannot be read. Does not consult PTY.
- * Client hint → AGENT_WORKSPACE_ROOT → API process cwd, then allowlist.
+ * Client hint is the last directory persisted from the terminal (OSC `pwd` after each command);
+ * it is not edited in settings. Chain: hint → AGENT_WORKSPACE_ROOT → API process cwd, then allowlist.
  */
 export function resolveWorkspaceRootWhenShellDisconnected(workspaceRootHint?: string): string {
   const envRoot = process.env.AGENT_WORKSPACE_ROOT?.trim();

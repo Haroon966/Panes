@@ -8,6 +8,8 @@ services:
     environment:
       - SHELL_DEFAULT=fish
       - PORT=3001
+      # Listen on all interfaces inside the container so host port publish works (default app HOST is loopback).
+      - HOST=0.0.0.0
     volumes:
       - ${HOME}/.config/fish:/root/.config/fish:ro
       - terminalai-data:/root/.config/terminalai

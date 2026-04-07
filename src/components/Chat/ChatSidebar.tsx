@@ -1,4 +1,15 @@
-import { History, MessageSquarePlus, PanelLeftClose, Search, Settings, Square, Trash2 } from 'lucide-react';
+import {
+  CircleHelp,
+  History,
+  MessageSquarePlus,
+  PanelLeftClose,
+  Pencil,
+  Search,
+  Settings,
+  Square,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ModelDropdown } from '@/components/ModelSelector/ModelDropdown';
 import {
@@ -11,10 +22,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { describeAgentLiveActivity, humanizeAgentToolName } from '@/lib/agentActivitySummary';
 import type { ConversationRow } from '@/lib/persistenceApi';
+import { useAgentStreamInterruptedNotice } from '@/hooks/useAgentStreamInterruptedNotice';
 import { useChatStream } from '@/hooks/useChatStream';
 import type { ModelsApiResponse } from '@/utils/localModelDiscovery';
 import { useChatStore } from '@/store/chatStore';
@@ -22,9 +43,30 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { cn } from '@/lib/utils';
 import { ChatInput } from './ChatInput';
 import { ChatMessage } from './ChatMessage';
+import { AgentToolActivity } from './AgentToolActivity';
 import { HitlApprovalPanel } from './HitlApprovalPanel';
 
 const HISTORY_PREVIEW_COUNT = 8;
+
+function formatCompactTokenCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+  return String(n);
+}
+
+function SessionTokenUsageBadge() {
+  const { input, output } = useChatStore((s) => s.sessionTokenUsage);
+  if (input === 0 && output === 0) return null;
+  return (
+    <span
+      className="truncate text-2xs text-terminalai-mutedDeep"
+      title="Cumulative prompt and completion tokens reported by the TerminalAI agent (LangGraph) this session. Omitted when the provider does not send usage metadata, or when using the Cline backend."
+    >
+      Tokens: {formatCompactTokenCount(input)} in · {formatCompactTokenCount(output)} out
+    </span>
+  );
+}
 
 /** Narrow icon strip when chat history is collapsed: top = logo, new chat, search; bottom = settings, shortcuts. */
 function ChatHistoryIconRail({
@@ -125,7 +167,10 @@ function ChatHistoryColumn({
   const selectConversation = useChatStore((s) => s.selectConversation);
   const newChat = useChatStore((s) => s.newChat);
   const deleteConversation = useChatStore((s) => s.deleteConversation);
+  const renameConversation = useChatStore((s) => s.renameConversation);
   const [deleteTarget, setDeleteTarget] = useState<ConversationRow | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ConversationRow | null>(null);
+  const [renameTitleDraft, setRenameTitleDraft] = useState('');
   const [historyListExpanded, setHistoryListExpanded] = useState(false);
   const historyListScrollRef = useRef<HTMLDivElement>(null);
   const prevConversationCount = useRef(0);
@@ -275,6 +320,26 @@ function ChatHistoryColumn({
                           type="button"
                           variant="ghost"
                           size="icon"
+                          className="my-1 h-7 w-7 shrink-0 rounded-md text-terminalai-muted opacity-70 hover:bg-terminalai-overlay hover:text-terminalai-accentText hover:opacity-100"
+                          aria-label={`Rename “${title}”`}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setRenameTarget(c);
+                            setRenameTitleDraft(c.title?.trim() ?? '');
+                          }}
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">Rename chat</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
                           className="my-1 mr-1 h-7 w-7 shrink-0 rounded-md text-terminalai-muted opacity-70 hover:bg-terminalai-overlay hover:text-destructive hover:opacity-100"
                           aria-label={`Delete “${title}”`}
                           onClick={(e) => {
@@ -329,6 +394,52 @@ function ChatHistoryColumn({
         </button>
       </div>
 
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) setRenameTarget(null);
+        }}
+      >
+        <DialogContent className="border-terminalai-border bg-terminalai-elevated text-terminalai-text">
+          <DialogHeader>
+            <DialogTitle className="text-terminalai-text">Rename chat</DialogTitle>
+            <DialogDescription className="text-terminalai-muted">
+              This title appears in your chat history list.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={renameTitleDraft}
+            onChange={(e) => setRenameTitleDraft(e.target.value)}
+            className="border-terminalai-border bg-terminalai-surface text-terminalai-text"
+            placeholder="Chat title"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                const id = renameTarget?.id;
+                if (id) void renameConversation(id, renameTitleDraft.trim());
+                setRenameTarget(null);
+              }
+            }}
+          />
+          <DialogFooter className="gap-2">
+            <Button type="button" variant="outline" onClick={() => setRenameTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="bg-terminalai-accent text-white hover:bg-terminalai-accent/90"
+              onClick={() => {
+                const id = renameTarget?.id;
+                if (id) void renameConversation(id, renameTitleDraft.trim());
+                setRenameTarget(null);
+              }}
+            >
+              Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <AlertDialog
         open={deleteTarget !== null}
         onOpenChange={(open) => {
@@ -380,7 +491,45 @@ function ChatbotColumn({
   const newChat = useChatStore((s) => s.newChat);
   const clearMessages = useChatStore((s) => s.clearMessages);
   const { isStreaming, abortStream } = useChatStream();
+  const activeToolCalls = useChatStore((s) => s.activeToolCalls);
+  const agentGraphPhase = useChatStore((s) => s.agentGraphPhase);
+  const pendingHitlCount = useChatStore(
+    (s) => s.hitlApprovals.filter((h) => h.status === 'pending').length
+  );
+  const liveActivityExplanation = useMemo(() => {
+    if (!isStreaming) return null;
+    return (
+      describeAgentLiveActivity({
+        isStreaming: true,
+        activeToolCalls,
+        pendingHitlCount,
+        graphPhase: agentGraphPhase,
+      }) ?? 'The model is reasoning or streaming its reply. Open the Tools section above for step details.'
+    );
+  }, [isStreaming, activeToolCalls, pendingHitlCount, agentGraphPhase]);
+
+  const graphPhaseLine = useMemo(() => {
+    if (!isStreaming || !agentGraphPhase) return null;
+    if (agentGraphPhase.phase === 'model') {
+      const n = agentGraphPhase.langgraphNode?.trim();
+      return n && n !== 'agent' ? `Model · ${n}` : 'Model';
+    }
+    const d = agentGraphPhase.detail?.trim();
+    return d ? `Tool · ${humanizeAgentToolName(d)}` : 'Tool';
+  }, [isStreaming, agentGraphPhase]);
   const messagesScrollRef = useRef<HTMLDivElement>(null);
+  const [slowStreamHint, setSlowStreamHint] = useState(false);
+  const { showAgentStreamInterruptedBanner, dismissAgentStreamInterruptedBanner } =
+    useAgentStreamInterruptedNotice(activeConversationId);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setSlowStreamHint(false);
+      return;
+    }
+    const t = window.setTimeout(() => setSlowStreamHint(true), 4000);
+    return () => window.clearTimeout(t);
+  }, [isStreaming]);
 
   useLayoutEffect(() => {
     const el = messagesScrollRef.current;
@@ -427,8 +576,11 @@ function ChatbotColumn({
             {historyPanelOpen ? 'Hide history panel' : 'Show history panel'}
           </TooltipContent>
         </Tooltip>
-        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <ModelDropdown catalog={catalog} onManageKeys={onManageKeys} />
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <ModelDropdown catalog={catalog} onManageKeys={onManageKeys} />
+          </div>
+          <SessionTokenUsageBadge />
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-0.5">
           {historyPanelOpen ? (
@@ -499,6 +651,29 @@ function ChatbotColumn({
           )}
         </div>
       </header>
+      {showAgentStreamInterruptedBanner && (
+        <div
+          className="flex shrink-0 items-start gap-2 border-b border-terminalai-border bg-terminalai-warning/12 px-3.5 py-2.5"
+          role="status"
+        >
+          <p className="min-w-0 flex-1 text-[12px] leading-snug text-terminalai-text">
+            This chat may have lost the end of the last assistant reply — the page was closed or
+            refreshed while a response was still streaming. Send again or use{' '}
+            <span className="font-medium">Regenerate</span> on the partial message if available. The
+            model does not resume mid-stream automatically.
+          </p>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            className="h-7 w-7 shrink-0 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+            onClick={dismissAgentStreamInterruptedBanner}
+            aria-label="Dismiss interrupted stream notice"
+          >
+            <X className="h-4 w-4" aria-hidden />
+          </Button>
+        </div>
+      )}
       <div
         ref={messagesScrollRef}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3.5 py-3.5"
@@ -529,29 +704,62 @@ function ChatbotColumn({
         {messages.map((m) => (
           <ChatMessage key={m.id} message={m} />
         ))}
+        <AgentToolActivity />
         {isStreaming && (
-          <div className="flex w-fit items-center gap-2 rounded-lg rounded-bl-sm border border-terminalai-border bg-terminalai-elevated px-3 py-2.5">
-            <span className="flex gap-1">
-              <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:0ms]" />
-              <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:200ms]" />
-              <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:400ms]" />
-            </span>
-            <span className="text-2xs text-terminalai-muted">Responding…</span>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="xs"
-                  className="ml-1 h-6 gap-1 border-terminalai-border bg-terminalai-overlay text-2xs"
-                  onClick={abortStream}
+          <div
+            className="flex w-fit max-w-full flex-col gap-1.5 rounded-lg rounded-bl-sm border border-terminalai-border bg-terminalai-elevated px-3 py-2.5"
+            title={liveActivityExplanation ?? undefined}
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="flex gap-1">
+                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:0ms]" />
+                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:200ms]" />
+                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:400ms]" />
+              </span>
+              <span className="text-2xs text-terminalai-muted">Responding…</span>
+              {graphPhaseLine && (
+                <span
+                  className="rounded border border-terminalai-borderSubtle bg-terminalai-surface px-1.5 py-0.5 font-mono text-[10px] text-terminalai-mutedDeep"
+                  title="Coarse LangGraph phase from the agent stream (TerminalAI backend only)."
                 >
-                  <Square className="h-3 w-3" />
-                  Stop
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Stop generation</TooltipContent>
-            </Tooltip>
+                  {graphPhaseLine}
+                </span>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-terminalai-processing"
+                    aria-label="What is the agent doing?"
+                  >
+                    <CircleHelp className="h-3.5 w-3.5" aria-hidden />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-[280px] text-xs leading-snug">
+                  {liveActivityExplanation}
+                </TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="xs"
+                    className="ml-1 h-6 gap-1 border-terminalai-border bg-terminalai-overlay text-2xs"
+                    onClick={abortStream}
+                  >
+                    <Square className="h-3 w-3" />
+                    Stop
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Stop generation</TooltipContent>
+              </Tooltip>
+            </div>
+            {slowStreamHint && (
+              <p className="text-2xs leading-snug text-terminalai-mutedDeep">
+                Slow provider or large prompt — text appears incrementally as the model streams.
+              </p>
+            )}
           </div>
         )}
       </div>

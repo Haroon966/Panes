@@ -3,6 +3,14 @@
 __terminalai_bash_precmd() {
   local code=$?
   printf '\033]773;exit;%s;\007' "$code"
+  local d pb
+  d=$(pwd -P 2>/dev/null) || d=
+  if [ -n "$d" ]; then
+    pb=$(printf '%s' "$d" | base64 2>/dev/null | tr -d '\n') || pb=
+    if [ -n "$pb" ]; then
+      printf '\033]773;pwd;%s;\007' "$pb"
+    fi
+  fi
 }
 case "$-" in
   *i*) PROMPT_COMMAND="__terminalai_bash_precmd${PROMPT_COMMAND:+;$PROMPT_COMMAND}" ;;

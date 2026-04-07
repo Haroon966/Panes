@@ -17,10 +17,12 @@ build/
 # Vendor mirrors (clone locally — see vendor/README.md)
 vendor/chat-ui/
 vendor/terminal/
+vendor/cline/
 
-# Nested vendor clones only (keep vendor/cline submodule .git usable)
+# Nested vendor clones only (keep submodule-style .git usable when present)
 vendor/chat-ui/.git
 vendor/terminal/.git
+vendor/cline/.git
 
 # Logs
 *.log
