@@ -497,7 +497,7 @@ export function createWorkspaceTools(
       {
         name: 'find_workspace_files',
         description:
-          'Search the workspace for files by optional filename suffix (e.g. ".ts", ".tsx") and/or substring in the basename. For matches inside file contents, use grep_workspace_content.',
+          'Search the workspace for files by optional filename suffix (e.g. ".ts", ".tsx") and/or substring in the **basename only** (not file contents). If name_contains returns no hits, the feature may use different words in paths (e.g. user says "navbar" but code uses Header.tsx) — omit name_contains, list src/components, or grep content instead. For matches inside file contents, use grep_workspace_content.',
         schema: z.object({
           suffix: z
             .string()

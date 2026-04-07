@@ -186,30 +186,19 @@ You can also add API keys in the UI via ⚙ → Manage API Keys.
 
 ---
 
-## Cline agent (HTTP integration)
+## Agent (LangGraph)
 
-TerminalAI can drive chat through an **OpenAI-compatible** upstream (same shape as Cline’s local stack: typically Ollama or LM Studio at `/v1/chat/completions`). This is **not** the VS Code Cline extension; it is a first-class HTTP path in this app, with upstream [Cline](https://github.com/cline/cline) used as **reference** (see [NOTICE](NOTICE); optional clone at `vendor/cline` per [vendor/README.md](vendor/README.md)).
+Chat uses a single streaming path: **`POST /api/agent`** (LangGraph + tools, `TERMINALAI_EVENT:` rows, optional HITL). Pick any supported provider or a **custom** OpenAI-compatible base URL (Ollama, LM Studio, Groq, etc.) in the model selector.
 
-**API (server):**
+**Workspace search:** The agent can **`search_workspace_index`** over a SQLite **FTS5** index of text files under the workspace, and **`rebuild_workspace_search_index`** after large changes. Tune or disable with `AGENT_DISABLE_WORKSPACE_FTS`, `AGENT_WORKSPACE_FTS_MAX_FILES`, `AGENT_WORKSPACE_FTS_MAX_BYTES` (see `.env.example`).
 
-- `GET /api/agent/cline/options` — base URL resolution, `upstreamKind`, suggested model hints
-- `GET /api/agent/cline/models` — list models from the resolved upstream (optional `?clineLocalBaseUrl=`)
-- `GET /api/agent/cline/health` — quick readiness check
-- `POST /api/agent/cline` — **streaming** `text/plain` response (same framing as `/api/agent`). By default it runs the **same LangGraph agent** as TerminalAI (tools, `TERMINALAI_EVENT:` tool rows, and HITL) with a local **OpenAI-compatible** chat model (Ollama / LM Studio / etc.). Body may include `clineModel` for the dedicated Cline model when the UI model is a cloud id. If `CLINE_AGENT_DISABLE_TOOLS=1`, the server uses a **plain HTTP proxy** to the upstream only (no tools or `TERMINALAI_EVENT:` lines). Responses include `X-TerminalAI-Stream-Kind: langgraph` or `cline_proxy` for debugging.
+**Verify after edits:** Set an optional **Agent verify command** in ⚙ → Manage API Keys (stored in SQLite). The model can call **`run_project_verify_command`** to run that command under the same rules as **`run_workspace_command`** (shell enabled + allowlist + approval).
 
-**Environment:** See `.env.example` (`CLINE_LOCAL_BASE_URL`, `CLINE_DEFAULT_MODEL`, `CLINE_CHAT_PATH`, `CLINE_AGENT_DISABLE_TOOLS`, `OLLAMA_BASE_URL`, `LMSTUDIO_BASE_URL`, etc.). If `CLINE_LOCAL_BASE_URL` is unset, the server falls back to `OLLAMA_BASE_URL` then `LMSTUDIO_BASE_URL`.
-
-**UI:** Choose **Cline** as the agent backend in chat settings. Pick a **Cline model** from the dropdown (from `/api/agent/cline/models`). **Auto-switch to LangChain on error** is configurable in Manage API Keys.
-
-The chat UI sends **`workspaceRoot`** (live cwd hint), **`terminalSessionId`** when the shell tab is connected, and **`clineLocalBaseUrl`** when set in ⚙, so agent tools and upstream resolution match the workspace editor and settings without waiting only on SQLite prefs.
-
-**Persistence:** `agent_backend` and `cline_model` can be stored in SQLite app prefs (see `server/db/migrations/`).
+**Persistence:** Chat, layout, `workspace_root`, agent prefs (verbosity, pins, verify command, etc.) live in SQLite — see the persistence paragraph above.
 
 **Docker / Ollama on the host:** From inside a container, `localhost` is the container itself. Point Ollama with e.g. `OLLAMA_BASE_URL=http://host.docker.internal:11434` (or your LAN IP) so the API can reach the host.
 
-**Upstream source (optional):** clone [Cline](https://github.com/cline/cline) into `vendor/cline` for local reference — see [vendor/README.md](vendor/README.md). Architecture notes: [docs/cline-architecture-audit.md](docs/cline-architecture-audit.md), capability matrix: [docs/cline-capability-matrix.md](docs/cline-capability-matrix.md). Rich in-chat **tool activity** (collapsible tool rows, inline approvals) applies to **`POST /api/agent`** and to **`POST /api/agent/cline` with default settings** (LangGraph). It does **not** apply when `CLINE_AGENT_DISABLE_TOOLS=1` (plain upstream proxy only).
-
-**Tests:** `npm run test:cline-resolve` (URL/kind/model resolution helpers).
+**Optional upstream reference:** [Cline](https://github.com/cline/cline) may be cloned into `vendor/cline` for local reading only — see [vendor/README.md](vendor/README.md) and [NOTICE](NOTICE).
 
 ---
 

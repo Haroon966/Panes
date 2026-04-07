@@ -100,23 +100,3 @@ export function createChatModel(auth: ModelRequestAuth): BaseChatModel {
       throw new Error(`Unknown provider: ${auth.provider}`);
   }
 }
-
-/**
- * LangChain {@link ChatOpenAI} against any OpenAI-compatible HTTP API (Groq, Ollama /v1, LM Studio, Cline bridges).
- * @param baseUrlWithoutV1 — e.g. `https://api.groq.com/openai` or `http://127.0.0.1:11434` (no trailing slash)
- */
-export function createOpenAiCompatibleUpstreamChatModel(
-  baseUrlWithoutV1: string,
-  model: string,
-  bearerToken: string | undefined
-): ChatOpenAI {
-  const root = baseUrlWithoutV1.trim().replace(/\/$/, '');
-  const baseURL = root.endsWith('/v1') ? root : `${root}/v1`;
-  const apiKey = bearerToken?.trim() || 'ollama';
-  return new ChatOpenAI({
-    model,
-    apiKey,
-    configuration: { baseURL },
-    temperature: agentTemperature(),
-  });
-}

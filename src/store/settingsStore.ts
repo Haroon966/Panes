@@ -12,8 +12,6 @@ import {
   resolveEffectiveTerminalTheme,
 } from '@/lib/terminalaiTheme';
 
-export type AgentBackend = 'langchain' | 'cline';
-
 export type KeyPresence = Record<ProviderId, boolean>;
 
 const MAX_AGENT_PINNED_PATHS_UI = 8;
@@ -43,15 +41,10 @@ interface SettingsState {
   keyPresence: KeyPresence;
   customBaseUrl: string;
   workspaceRoot: string;
-  clineLocalBaseUrl: string;
   selectedProvider: ProviderId;
   selectedModel: string;
-  agentBackend: AgentBackend;
-  clineAgentId: string;
-  clineModel: string;
-  clineAutoFallbackOnError: boolean;
-  /** From GET /api/agent/cline/options; not persisted. */
-  clineServerBaseConfigured: boolean | null;
+  /** One shell command for agent tool run_project_verify_command (e.g. npm test). */
+  agentVerifyCommand: string;
   agentPanelOpen: boolean;
   historyPanelOpen: boolean;
   /** User preference; `system` follows OS dark/light. */
@@ -74,12 +67,7 @@ interface SettingsState {
   setApiKeyLocal: (provider: ProviderId, hasKey: boolean) => void;
   setCustomBaseUrl: (raw: string) => void;
   setWorkspaceRoot: (raw: string) => void;
-  setClineLocalBaseUrl: (raw: string) => void;
-  setAgentBackend: (b: AgentBackend) => void;
-  setClineAgentId: (id: string) => void;
-  setClineModel: (m: string) => void;
-  setClineAutoFallbackOnError: (v: boolean) => void;
-  setClineServerBaseConfigured: (v: boolean | null) => void;
+  setAgentVerifyCommand: (raw: string) => void;
   setAgentPanelOpen: (open: boolean) => void;
   setHistoryPanelOpen: (open: boolean) => void;
   setColorScheme: (scheme: ColorSchemePreference) => void;
@@ -95,21 +83,15 @@ interface SettingsState {
   setSelected: (provider: ProviderId, modelId: string) => void;
   getCustomBaseUrl: () => string;
   getWorkspaceRoot: () => string;
-  getClineLocalBaseUrl: () => string;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   keyPresence: defaultKeyPresence(),
   customBaseUrl: '',
   workspaceRoot: '',
-  clineLocalBaseUrl: '',
   selectedProvider: 'openai',
   selectedModel: 'gpt-4o',
-  agentBackend: 'langchain',
-  clineAgentId: 'default',
-  clineModel: '',
-  clineAutoFallbackOnError: true,
-  clineServerBaseConfigured: null,
+  agentVerifyCommand: '',
   agentPanelOpen: true,
   historyPanelOpen: true,
   colorScheme: 'dark',
@@ -127,12 +109,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     })),
   setCustomBaseUrl: (raw) => set({ customBaseUrl: raw }),
   setWorkspaceRoot: (raw) => set({ workspaceRoot: raw }),
-  setClineLocalBaseUrl: (raw) => set({ clineLocalBaseUrl: raw }),
-  setAgentBackend: (b) => set({ agentBackend: b }),
-  setClineAgentId: (id) => set({ clineAgentId: id }),
-  setClineModel: (m) => set({ clineModel: m }),
-  setClineAutoFallbackOnError: (v) => set({ clineAutoFallbackOnError: v }),
-  setClineServerBaseConfigured: (v) => set({ clineServerBaseConfigured: v }),
+  setAgentVerifyCommand: (raw) => set({ agentVerifyCommand: raw }),
   setAgentPanelOpen: (open) => set({ agentPanelOpen: open }),
   setHistoryPanelOpen: (open) => set({ historyPanelOpen: open }),
   setColorScheme: (colorScheme) => {
@@ -180,5 +157,4 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setSelected: (provider, modelId) => set({ selectedProvider: provider, selectedModel: modelId }),
   getCustomBaseUrl: () => get().customBaseUrl,
   getWorkspaceRoot: () => get().workspaceRoot,
-  getClineLocalBaseUrl: () => get().clineLocalBaseUrl,
 }));

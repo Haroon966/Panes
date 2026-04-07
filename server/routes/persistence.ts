@@ -6,6 +6,7 @@ import {
   normalizeAgentContextHints,
   normalizeAgentPinnedPathsArray,
   normalizeAgentPinnedPathsFromJson,
+  normalizeAgentVerifyCommand,
   normalizeAgentVerbosity,
   type AgentVerbosity,
 } from '../lib/agentStylePrefs';
@@ -15,6 +16,11 @@ import {
   parseApiKeysJson,
   stringifyApiKeys,
 } from '../lib/appPrefs';
+import {
+  agentTraceEntrySchema,
+  normalizeAgentTraceJson,
+  parseAgentTraceColumn,
+} from '../lib/agentTraceJson';
 
 export const persistenceRouter = Router();
 
@@ -28,8 +34,6 @@ const providerIdSchema = z.enum([
   'lmstudio',
   'custom',
 ]);
-
-const agentBackendSchema = z.enum(['langchain', 'cline']);
 
 const colorSchemeSchema = z.enum(['dark', 'light', 'system']);
 
@@ -51,14 +55,11 @@ export const prefsPutSchema = z.object({
   selectedProvider: providerIdSchema,
   selectedModel: z.string().min(1).max(512),
   activeConversationId: z.string().uuid().nullable().optional(),
-  agentBackend: agentBackendSchema.optional(),
-  clineModel: z.string().max(512).optional(),
   apiKeys: apiKeysPatchSchema,
   customBaseUrl: z.string().max(2048).optional(),
   workspaceRoot: z.string().max(4096).optional(),
-  clineLocalBaseUrl: z.string().max(2048).optional(),
-  clineAgentId: z.string().max(256).optional(),
-  clineAutoFallbackOnError: z.boolean().optional(),
+  /** One shell command for `run_project_verify_command` (e.g. npm test). */
+  agentVerifyCommand: z.string().max(2048).optional(),
   agentPanelOpen: z.boolean().optional(),
   historyPanelOpen: z.boolean().optional(),
   colorScheme: colorSchemeSchema.optional(),
@@ -77,13 +78,6 @@ export const prefsPutSchema = z.object({
   /** When true, workspace editor runs Monaco formatDocument before manual save (not auto-save). */
   workspaceFormatOnSave: z.boolean().optional(),
 });
-
-function normalizeStoredClineLocalUrl(raw: string): string {
-  const t = raw.trim();
-  const n = t.replace(/\/$/, '');
-  if (n === 'http://127.0.0.1:8787' || n === 'http://localhost:8787') return '';
-  return t;
-}
 
 const terminalPayloadSchema = z.object({
   sessions: z
@@ -117,17 +111,21 @@ const messageAlternateSchema = z.object({
   createdAt: z.number().int().nonnegative(),
 });
 
+const agentTraceSchema = z.array(agentTraceEntrySchema).max(400);
+
 const messagePostSchema = z.object({
   id: z.string().min(1).max(128),
   role: z.enum(['user', 'assistant', 'system']),
   content: z.string().max(2_000_000),
   alternates: z.array(messageAlternateSchema).optional(),
+  agentTrace: agentTraceSchema.optional(),
 });
 
 const messagePatchSchema = z.object({
   content: z.string().max(2_000_000).optional(),
   alternates: z.array(messageAlternateSchema).optional(),
   activateAlternateId: z.string().min(1).max(128).optional(),
+  agentTrace: agentTraceSchema.optional(),
 });
 
 const conversationPatchSchema = z.object({
@@ -140,12 +138,11 @@ persistenceRouter.get('/prefs', (_req: Request, res: Response) => {
   const row = db
     .prepare(
       `SELECT selected_provider, selected_model, agent_mode, active_conversation_id,
-              agent_backend, cline_model,
-              api_keys_json, custom_base_url, workspace_root, cline_local_base_url,
-              cline_agent_id, cline_auto_fallback_on_error, agent_panel_open, history_panel_open,
+              api_keys_json, custom_base_url, workspace_root,
+              agent_panel_open, history_panel_open,
               color_scheme, code_font_size_px,
               agent_verbosity, agent_context_hints, agent_pinned_paths_json,
-              workspace_format_on_save
+              workspace_format_on_save, agent_verify_command
        FROM app_prefs WHERE id = 1`
     )
     .get() as {
@@ -153,14 +150,9 @@ persistenceRouter.get('/prefs', (_req: Request, res: Response) => {
     selected_model: string;
     agent_mode: number;
     active_conversation_id: string | null;
-    agent_backend: string | null;
-    cline_model: string | null;
     api_keys_json: string;
     custom_base_url: string;
     workspace_root: string;
-    cline_local_base_url: string;
-    cline_agent_id: string;
-    cline_auto_fallback_on_error: number;
     agent_panel_open: number;
     history_panel_open: number;
     color_scheme: string | null;
@@ -169,6 +161,7 @@ persistenceRouter.get('/prefs', (_req: Request, res: Response) => {
     agent_context_hints: string | null;
     agent_pinned_paths_json: string | null;
     workspace_format_on_save: number | null;
+    agent_verify_command: string | null;
   };
   const keys = parseApiKeysJson(row.api_keys_json ?? '{}');
   const cs = row.color_scheme;
@@ -184,16 +177,10 @@ persistenceRouter.get('/prefs', (_req: Request, res: Response) => {
     selectedProvider: row.selected_provider,
     selectedModel: row.selected_model,
     activeConversationId: row.active_conversation_id,
-    agentBackend: (row.agent_backend === 'cline' ? 'cline' : 'langchain') as
-      | 'langchain'
-      | 'cline',
-    clineModel: row.cline_model ?? '',
     keyPresence: keyPresenceFromKeys(keys),
     customBaseUrl: row.custom_base_url ?? '',
     workspaceRoot: row.workspace_root ?? '',
-    clineLocalBaseUrl: row.cline_local_base_url ?? '',
-    clineAgentId: row.cline_agent_id ?? 'default',
-    clineAutoFallbackOnError: (row.cline_auto_fallback_on_error ?? 1) === 1,
+    agentVerifyCommand: normalizeAgentVerifyCommand(row.agent_verify_command ?? ''),
     agentPanelOpen: (row.agent_panel_open ?? 1) === 1,
     historyPanelOpen: (row.history_panel_open ?? 1) === 1,
     colorScheme,
@@ -216,23 +203,17 @@ persistenceRouter.put('/prefs', (req: Request, res: Response) => {
   const db = getDb();
   const existing = db
     .prepare(
-      `SELECT agent_backend, cline_model, api_keys_json, custom_base_url, workspace_root,
-              cline_local_base_url, cline_agent_id, cline_auto_fallback_on_error,
+      `SELECT api_keys_json, custom_base_url, workspace_root,
               agent_panel_open, history_panel_open, color_scheme, code_font_size_px,
               agent_verbosity, agent_context_hints, agent_mode, agent_pinned_paths_json,
-              workspace_format_on_save
+              workspace_format_on_save, agent_verify_command
        FROM app_prefs WHERE id = 1`
     )
     .get() as
     | {
-        agent_backend: string | null;
-        cline_model: string | null;
         api_keys_json: string;
         custom_base_url: string;
         workspace_root: string;
-        cline_local_base_url: string;
-        cline_agent_id: string;
-        cline_auto_fallback_on_error: number;
         agent_panel_open: number;
         history_panel_open: number;
         color_scheme: string | null;
@@ -242,15 +223,9 @@ persistenceRouter.put('/prefs', (req: Request, res: Response) => {
         agent_mode: number;
         agent_pinned_paths_json: string | null;
         workspace_format_on_save: number | null;
+        agent_verify_command: string | null;
       }
     | undefined;
-
-  const ab =
-    data.agentBackend ??
-    (existing?.agent_backend === 'cline' || existing?.agent_backend === 'langchain'
-      ? existing.agent_backend
-      : 'langchain');
-  const cm = data.clineModel !== undefined ? data.clineModel : (existing?.cline_model ?? '');
 
   const prevKeys = parseApiKeysJson(existing?.api_keys_json ?? '{}');
   const mergedKeys = mergeApiKeysPatch(prevKeys, data.apiKeys);
@@ -260,18 +235,11 @@ persistenceRouter.put('/prefs', (req: Request, res: Response) => {
     data.customBaseUrl !== undefined ? data.customBaseUrl : (existing?.custom_base_url ?? '');
   const workspaceRoot =
     data.workspaceRoot !== undefined ? data.workspaceRoot : (existing?.workspace_root ?? '');
-  const clineLocalRaw =
-    data.clineLocalBaseUrl !== undefined
-      ? data.clineLocalBaseUrl
-      : (existing?.cline_local_base_url ?? '');
-  const clineLocalBaseUrl = normalizeStoredClineLocalUrl(clineLocalRaw);
-
-  const clineAgentId =
-    data.clineAgentId !== undefined ? data.clineAgentId : (existing?.cline_agent_id ?? 'default');
-  const clineAutoFallbackOnError =
-    data.clineAutoFallbackOnError !== undefined
-      ? data.clineAutoFallbackOnError
-      : (existing?.cline_auto_fallback_on_error ?? 1) === 1;
+  const agentVerifyCommand = normalizeAgentVerifyCommand(
+    data.agentVerifyCommand !== undefined
+      ? data.agentVerifyCommand
+      : (existing?.agent_verify_command ?? '')
+  );
   const agentPanelOpen =
     data.agentPanelOpen !== undefined
       ? data.agentPanelOpen
@@ -344,21 +312,22 @@ persistenceRouter.put('/prefs', (req: Request, res: Response) => {
       agent_verbosity = ?,
       agent_context_hints = ?,
       agent_pinned_paths_json = ?,
-      workspace_format_on_save = ?
+      workspace_format_on_save = ?,
+      agent_verify_command = ?
      WHERE id = 1`
   ).run(
     data.selectedProvider,
     data.selectedModel,
     agentMode,
     data.activeConversationId ?? null,
-    ab,
-    cm,
+    'langchain',
+    '',
     apiKeysJson,
     customBaseUrl,
     workspaceRoot,
-    clineLocalBaseUrl,
-    clineAgentId,
-    clineAutoFallbackOnError ? 1 : 0,
+    '',
+    'default',
+    1,
     agentPanelOpen ? 1 : 0,
     historyPanelOpen ? 1 : 0,
     colorSchemeRaw,
@@ -366,7 +335,8 @@ persistenceRouter.put('/prefs', (req: Request, res: Response) => {
     agentVerbosity,
     agentContextHints,
     agentPinnedPathsJson,
-    workspaceFormatOnSave ? 1 : 0
+    workspaceFormatOnSave ? 1 : 0,
+    agentVerifyCommand
   );
   res.json({ ok: true });
 });
@@ -515,7 +485,8 @@ persistenceRouter.get('/conversations/:id/messages', (req: Request, res: Respons
   const rows = db
     .prepare(
       `SELECT id, role, content, created_at,
-              COALESCE(alternates_json, '[]') AS alternates_json
+              COALESCE(alternates_json, '[]') AS alternates_json,
+              COALESCE(agent_trace_json, '[]') AS agent_trace_json
        FROM messages
        WHERE conversation_id = ?
        ORDER BY created_at ASC`
@@ -526,6 +497,7 @@ persistenceRouter.get('/conversations/:id/messages', (req: Request, res: Respons
     content: string;
     created_at: number;
     alternates_json: string;
+    agent_trace_json: string;
   }[];
   res.json({
     messages: rows.map((m) => ({
@@ -534,6 +506,7 @@ persistenceRouter.get('/conversations/:id/messages', (req: Request, res: Respons
       content: m.content,
       createdAt: m.created_at,
       alternates: parseAlternatesColumn(m.alternates_json),
+      agentTrace: parseAgentTraceColumn(m.agent_trace_json),
     })),
   });
 });
@@ -549,10 +522,18 @@ persistenceRouter.patch('/conversations/:id/messages/:messageId', (req: Request,
   const db = getDb();
   const row = db
     .prepare(
-      `SELECT id, content, COALESCE(alternates_json, '[]') AS alternates_json
+      `SELECT id, content, COALESCE(alternates_json, '[]') AS alternates_json,
+              COALESCE(agent_trace_json, '[]') AS agent_trace_json
        FROM messages WHERE id = ? AND conversation_id = ?`
     )
-    .get(messageId, convId) as { id: string; content: string; alternates_json: string } | undefined;
+    .get(messageId, convId) as
+    | {
+        id: string;
+        content: string;
+        alternates_json: string;
+        agent_trace_json: string;
+      }
+    | undefined;
   if (!row) {
     res.status(404).json({ error: 'Not found' });
     return;
@@ -560,6 +541,7 @@ persistenceRouter.patch('/conversations/:id/messages/:messageId', (req: Request,
 
   let content = row.content;
   let alternates = parseAlternatesColumn(row.alternates_json);
+  let agentTraceJson = normalizeAgentTraceJson(row.agent_trace_json);
 
   if (parsed.data.activateAlternateId) {
     const aid = parsed.data.activateAlternateId;
@@ -581,11 +563,14 @@ persistenceRouter.patch('/conversations/:id/messages/:messageId', (req: Request,
 
   if (parsed.data.content !== undefined) content = parsed.data.content;
   if (parsed.data.alternates !== undefined) alternates = parsed.data.alternates;
+  if (parsed.data.agentTrace !== undefined) {
+    agentTraceJson = normalizeAgentTraceJson(JSON.stringify(parsed.data.agentTrace));
+  }
 
   const now = Date.now();
   db.prepare(
-    `UPDATE messages SET content = ?, alternates_json = ? WHERE id = ? AND conversation_id = ?`
-  ).run(content, JSON.stringify(alternates), messageId, convId);
+    `UPDATE messages SET content = ?, alternates_json = ?, agent_trace_json = ? WHERE id = ? AND conversation_id = ?`
+  ).run(content, JSON.stringify(alternates), agentTraceJson, messageId, convId);
   db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
   res.json({ ok: true });
 });
@@ -608,10 +593,13 @@ persistenceRouter.post('/conversations/:id/messages', (req: Request, res: Respon
   const now = Date.now();
   const { id, role, content } = parsed.data;
   const alternatesJson = JSON.stringify(parsed.data.alternates ?? []);
+  const traceJson = normalizeAgentTraceJson(
+    parsed.data.agentTrace != null ? JSON.stringify(parsed.data.agentTrace) : '[]'
+  );
   db.prepare(
-    `INSERT INTO messages (id, conversation_id, role, content, created_at, alternates_json)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, convId, role, content, now, alternatesJson);
+    `INSERT INTO messages (id, conversation_id, role, content, created_at, alternates_json, agent_trace_json)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, convId, role, content, now, alternatesJson, traceJson);
   db.prepare('UPDATE conversations SET updated_at = ? WHERE id = ?').run(now, convId);
 
   if (role === 'user' && (!exists.title || exists.title.trim() === '')) {

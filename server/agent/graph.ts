@@ -1,4 +1,5 @@
 import { createReactAgent } from '@langchain/langgraph/prebuilt';
+import type { StructuredToolInterface } from '@langchain/core/tools';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import type { AgentVerbosity } from '../lib/agentStylePrefs';
 import { verbosityStyleBlock } from '../lib/agentStylePrefs';
@@ -12,6 +13,8 @@ import { createRegistrySearchTools } from './registrySearchTools';
 import { createWebSearchTools } from './webSearchTool';
 import { createOutlineWorkspaceTool } from './outlineWorkspaceTool';
 import { createWorkspaceTools } from './workspaceTools';
+import { createVerifyProjectTool } from './verifyProjectTool';
+import { createWorkspaceSearchIndexTools } from './workspaceSearchIndexTool';
 import { agentReadOnlyMode, enforceReadBeforeWrite } from './approvalEnv';
 
 export type AgentRuntimeContext = TerminalContext & {
@@ -28,6 +31,8 @@ export type AgentRuntimeContext = TerminalContext & {
   agentAutoMode: boolean;
   /** Pre-rendered block from user-pinned files (may be empty). */
   pinnedFilesPromptAppend: string;
+  /** User-configured shell command to validate the project (e.g. npm test); may be empty. */
+  agentVerifyCommand: string;
   /** Index of SKILL.md files under `.cursor/skills/` (name, description, path); may be empty. */
   workspaceSkillsPromptAppend: string;
   /** Per HTTP/agent request: paths read this turn (for AGENT_ENFORCE_READ_BEFORE_WRITE). */
@@ -39,43 +44,43 @@ export type AgentRuntimeContext = TerminalContext & {
   clientWorkspaceDirtyPathSet: Set<string>;
 };
 
-const BASE_SYSTEM = `You are TerminalAI — an autonomous coding and terminal assistant (similar in spirit to Cursor's agent).
+/** Core instructions; tool names for this request are appended dynamically in `buildPrompt`. */
+const BASE_CORE = `You are TerminalAI — an autonomous coding and terminal assistant (similar in spirit to Cursor's agent).
 
 ## How you work
 - Prefer **tools** over guessing: read files, list directories, and re-fetch terminal output when needed.
 - Start with a **short plan** (1–3 bullets), then execute with tools and concise explanations.
 - When you cite code or paths, use **backticks** and real paths relative to the workspace root.
 - For **editing existing files**, prefer **search_replace_workspace_file** when the change is localized; use **write_workspace_file** for new files or full rewrites. After a successful patch, **read_workspace_file** (full file or a line slice) on the same path to **verify** the result.
-- After **substantive code changes**, suggest running the project’s tests (or the usual test command for this repo). When **run_workspace_command** is enabled and appropriate, you may offer to run it — never claim tests passed without tool output.
+- After **substantive code changes**, suggest running the project’s tests or lint. If **run_project_verify_command** is available (user configured a verify command in settings), call it after meaningful edits when appropriate — never claim tests passed without that tool’s output. Otherwise use **run_workspace_command** when enabled, or suggest the user run \`npm test\`, \`npm run lint\`, \`pytest\`, etc., based on what exists in the repo (check \`package.json\`, \`pyproject.toml\`, \`Cargo.toml\`, Makefile).
 - Call **get_terminal_snapshot** again when terminal output may have changed (e.g. after suggesting the user run a command) or when the initial snapshot is likely stale.
-- For shell commands the user runs locally: put **each runnable command** in its own fenced \`\`\`bash block. Never claim you ran a command unless **run_workspace_command** returned output.
+- For shell commands the user runs locally: put **each runnable command** in its own fenced \`\`\`bash block. Never claim you ran a command unless **run_workspace_command** or **run_project_verify_command** returned output.
 - Warn before **destructive** commands (rm -rf, DROP, mkfs, piping curl to shell, etc.).
+- **Vague UI words** (navbar, menu bar, top bar, chrome, shell UI): the codebase rarely uses those exact strings. Map them to likely implementation terms and search **multiple** ways before giving up: \`<header>\`, \`Header\`, \`Nav\`, \`Navigation\`, \`AppBar\`, \`Toolbar\`, \`TopNav\`, \`TabBar\`, layout/route wrappers. Prefer **list_workspace** on \`src\` / \`src/components\`, **grep_workspace_content** for \`header\` / \`navigation\` in \`*.tsx\` / \`*.vue\`, or **search_workspace_index** with concepts like “header navigation menu”. If **find_workspace_files** with \`name_contains\` returns nothing, widen or drop the name filter — filenames often omit the user’s word.
 
-## Tools you have
-- **get_terminal_snapshot** — current terminal buffer + user-attached error for this turn.
-- **read_workspace_file** — read a UTF-8 file; optional **start_line** / **end_line** (1-based) for up to 400 lines without loading huge files whole.
-- **get_workspace_file_outline** — heuristic declaration/heading list for one file (regex; not LSP).
-- **write_workspace_file** — create or replace a UTF-8 file (mode create vs replace). May require user approval on the server.
-- **search_replace_workspace_file** — replace exact substrings in an existing file (prefer for edits). May require approval like writes when configured.
-- **list_workspace** — list a directory under the workspace.
-- **find_workspace_files** — locate files by suffix or name substring in paths.
-- **grep_workspace_content** — search **inside** file contents (symbols, strings, errors). Use with **find_workspace_files** when you know the filename pattern but need matches in text.
-- **find_workspace_symbol** / **find_workspace_references** — ripgrep **word-boundary** search for an identifier (not AST/LSP; use **glob** to narrow file types).
-- **workspace_path_stat** — check if a path exists, file vs directory, and file size/mtime before acting.
-- **delete_workspace_file** — delete a file, or an empty directory when allow_empty_directory is true (non-empty dirs are refused). May require approval when writes require approval.
-- **copy_workspace_file** / **move_workspace_file** — copy or move a **regular file** within the workspace (not directories). May require approval when writes require approval.
-- **run_workspace_command** — (if enabled on server) run argv in the **integrated terminal** when that tab is connected, else as a subprocess; usually requires approval.
-- **search_npm_packages** — search the public npm registry by keyword or package name (versions + short descriptions).
-- **lookup_pypi_project** — fetch PyPI metadata for an **exact** Python distribution name (latest version, summary, license).
-- **fetch_url** — HTTPS GET for **allowlisted** documentation / registry hosts only; returns text (HTML stripped). Each redirect must stay allowlisted.
-- **read_documentation** — Same allowlist as **fetch_url**, but returns **one chunk** at a time for long docs (**chunk_index** 0, 1, …). Prefer for large manual pages.
-- **web_search** — DuckDuckGo **instant answer** (short summaries + related links; not a full SERP). Disable on server with **AGENT_DISABLE_WEB_SEARCH** if outbound search is not allowed.
+## Tool routing
+- Broad “where is X discussed?” across the repo → **search_workspace_index** first; if results are empty or stale → **rebuild_workspace_search_index**, then search again.
+- Exact strings, stack traces, or error snippets in files → **grep_workspace_content**; pair with **find_workspace_files** when you need path discovery before searching contents.
+- Identifier-like symbols (not full AST) → **find_workspace_symbol** / **find_workspace_references** (word-boundary ripgrep); pass **glob** to limit file types.
+- Quick structural skim of one file → **get_workspace_file_outline** before reading large regions.
+- Small allowlisted documentation pages → **fetch_url**; long manuals or huge HTML → **read_documentation** with **chunk_index** (0, 1, …).
+- npm package discovery → **search_npm_packages**; PyPI metadata for an **exact** distribution name → **lookup_pypi_project**.
+- Check path existence/size → **workspace_path_stat** before expensive reads or writes.
+- Integrated terminal / subprocess commands → **run_workspace_command** when enabled; user’s saved verify script → **run_project_verify_command** when that tool exists for this session.
+- Fresh terminal or attached error text → **get_terminal_snapshot** whenever output may have changed.
 
 Stay factual. If something is not in the workspace or terminal, say so and suggest what to run or open next.`;
 
-function buildPrompt(ctx: AgentRuntimeContext): string {
+function buildPrompt(ctx: AgentRuntimeContext, toolNames: string[]): string {
+  const sorted = [...new Set(toolNames.map((n) => n.trim()).filter(Boolean))].sort();
+  const toolLine =
+    sorted.length > 0
+      ? `## Tools available in this session\nOnly call tools whose names appear in this list (server may omit tools when read-only, shell disabled, or similar): ${sorted.join(', ')}.`
+      : '## Tools available in this session\nNo tools are registered for this request.';
+
   const parts = [
-    BASE_SYSTEM,
+    BASE_CORE,
+    toolLine,
     ...(ctx.workspaceSkillsPromptAppend.trim()
       ? [
           'When **Workspace skills** are listed below, if the user’s task matches a skill’s description, call **read_workspace_file** on that **SKILL.md** first and follow it.',
@@ -101,9 +106,15 @@ function buildPrompt(ctx: AgentRuntimeContext): string {
       '## Execution preference\nThe user enabled **confirm file & shell actions**: every write, patch, delete, copy, move, and workspace shell command will wait for explicit approval in the UI when those tools are available.'
     );
   }
+  const verifyCmd = ctx.agentVerifyCommand.trim();
+  if (verifyCmd) {
+    parts.push(
+      `## Project verify command (user preference)\nThe user configured **run_project_verify_command** to run exactly: \`${verifyCmd.replace(/`/g, "'")}\` in the workspace root. Use that tool after substantive edits when validation is appropriate.`
+    );
+  }
   if (agentReadOnlyMode()) {
     parts.push(
-      '## Read-only mode\nServer **AGENT_READ_ONLY** is set: **write_workspace_file**, **search_replace_workspace_file**, **delete_workspace_file**, **copy_workspace_file**, **move_workspace_file**, and **run_workspace_command** are **not available**. Use reads, grep, outline, terminal snapshot, **fetch_url**, **read_documentation**, and **web_search** only; explain changes for the user to apply manually.'
+      '## Read-only mode\nServer **AGENT_READ_ONLY** is set: **write_workspace_file**, **search_replace_workspace_file**, **delete_workspace_file**, **copy_workspace_file**, **move_workspace_file**, **run_workspace_command**, and **run_project_verify_command** are **not available**. Use reads, grep, outline, **search_workspace_index** / **rebuild_workspace_search_index**, terminal snapshot, **fetch_url**, **read_documentation**, and **web_search** only; explain changes for the user to apply manually.'
     );
   }
   if (enforceReadBeforeWrite()) {
@@ -132,8 +143,9 @@ function buildPrompt(ctx: AgentRuntimeContext): string {
   return parts.join('\n\n');
 }
 
-export function createTerminalAgentGraph(llm: BaseChatModel, ctx: AgentRuntimeContext) {
-  const tools = [
+/** All LangChain tools for the TerminalAI agent (single source for names + registration). */
+export function buildTerminalAgentTools(ctx: AgentRuntimeContext): StructuredToolInterface[] {
+  return [
     ...createTerminalTools(ctx),
     ...createWorkspaceTools(ctx.workspaceRootAbs, {
       userAlwaysConfirmMutations: !ctx.agentAutoMode,
@@ -149,15 +161,31 @@ export function createTerminalAgentGraph(llm: BaseChatModel, ctx: AgentRuntimeCo
       terminalSessionId: ctx.terminalSessionId,
       userAlwaysConfirmMutations: !ctx.agentAutoMode,
     }),
+    ...createVerifyProjectTool(ctx.workspaceRootAbs, {
+      agentVerifyCommand: ctx.agentVerifyCommand,
+      terminalSessionId: ctx.terminalSessionId,
+      userAlwaysConfirmMutations: !ctx.agentAutoMode,
+    }),
+    ...createWorkspaceSearchIndexTools(ctx.workspaceRootAbs),
     ...createRegistrySearchTools(),
     ...createFetchUrlTool(),
     ...createReadDocsTool(),
     ...createWebSearchTools(),
   ];
+}
+
+/** @internal Self-check for tests: core prompt must retain the routing section. */
+export function agentCorePromptIncludesToolRouting(): boolean {
+  return BASE_CORE.includes('## Tool routing');
+}
+
+export function createTerminalAgentGraph(llm: BaseChatModel, ctx: AgentRuntimeContext) {
+  const tools = buildTerminalAgentTools(ctx);
+  const toolNames = tools.map((t) => String(t.name));
   return createReactAgent({
     llm,
     tools,
-    prompt: buildPrompt(ctx),
+    prompt: buildPrompt(ctx, toolNames),
     version: 'v2',
   });
 }

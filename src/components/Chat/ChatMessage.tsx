@@ -35,12 +35,16 @@ import {
 import { cn } from '@/lib/utils';
 import { useChatStore } from '@/store/chatStore';
 import { useWorkbenchStore } from '@/store/workbenchStore';
+import { AgentMessageTrace } from './AgentMessageTrace';
 import { ChatDiffFence } from './ChatDiffFence';
 import { CommandButton } from './CommandButton';
 
 export function ChatMessage({ message }: { message: Msg }) {
   const isUser = message.role === 'user';
   const isStreaming = useChatStore((s) => s.isStreaming);
+  const lastMessageId = useChatStore((s) => s.messages[s.messages.length - 1]?.id);
+  const isLiveStreamingAssistant =
+    !isUser && isStreaming && message.id === lastMessageId;
   const setA11yAnnouncement = useChatStore((s) => s.setA11yAnnouncement);
   const regenerateAssistantMessage = useChatStore((s) => s.regenerateAssistantMessage);
   const rewriteAssistantMessage = useChatStore((s) => s.rewriteAssistantMessage);
@@ -279,6 +283,18 @@ export function ChatMessage({ message }: { message: Msg }) {
           {isUser ? (
             <p className="whitespace-pre-wrap">{message.content}</p>
           ) : (
+            <>
+          {message.agentTrace != null && message.agentTrace.length > 0 && (
+            <AgentMessageTrace trace={message.agentTrace} />
+          )}
+            {isLiveStreamingAssistant &&
+              !message.content.trim() &&
+              !(message.agentTrace && message.agentTrace.length > 0) && (
+                <p className="mb-2 text-2xs italic text-terminalai-muted">
+                  Connecting to model…
+                </p>
+              )}
+            {message.content.trim().length > 0 ? (
             <ReactMarkdown
               components={{
                 code({ className, children }) {
@@ -345,6 +361,8 @@ export function ChatMessage({ message }: { message: Msg }) {
             >
               {message.content}
             </ReactMarkdown>
+            ) : null}
+            </>
           )}
         </div>
         {hasVersions && (

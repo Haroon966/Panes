@@ -187,6 +187,7 @@ export async function* streamAgentPlainText(params: {
     agentVerbosity: prefs.agentVerbosity,
     agentContextHints: prefs.agentContextHints,
     agentAutoMode: prefs.agentAutoMode,
+    agentVerifyCommand: prefs.agentVerifyCommand,
     pinnedFilesPromptAppend,
     workspaceSkillsPromptAppend,
     workspaceReadPathsThisTurn,
@@ -291,8 +292,14 @@ export async function* streamAgentPlainText(params: {
           summary = pv
             ? `Patch **${pending.relative_path}** — \`${truncateForStream(pv, 160)}\``
             : `Patch **${pending.relative_path}** (${pending.bytes ?? '?'} bytes)`;
-        } else if (toolName === 'run_workspace_command' && pending.command != null) {
-          summary = `Run: \`${truncateForStream(pending.command, 200)}\``;
+        } else if (
+          (toolName === 'run_workspace_command' || toolName === 'run_project_verify_command') &&
+          pending.command != null
+        ) {
+          summary =
+            toolName === 'run_project_verify_command'
+              ? `Verify: \`${truncateForStream(pending.command, 200)}\``
+              : `Run: \`${truncateForStream(pending.command, 200)}\``;
         } else if (toolName === 'delete_workspace_file' && pending.relative_path != null) {
           summary = pending.allow_empty_directory
             ? `Delete empty directory **${pending.relative_path}**`
@@ -317,7 +324,7 @@ export async function* streamAgentPlainText(params: {
           summary,
           callId,
           riskHint:
-            toolName === 'run_workspace_command'
+            toolName === 'run_workspace_command' || toolName === 'run_project_verify_command'
               ? 'Shell commands can change your system; review carefully.'
               : toolName === 'write_workspace_file'
                 ? 'Overwrites existing files when mode is replace.'

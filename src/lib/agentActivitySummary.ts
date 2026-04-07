@@ -25,7 +25,7 @@ export function describeAgentLiveActivity(input: {
   isStreaming: boolean;
   activeToolCalls: AgentActivityToolRow[];
   pendingHitlCount: number;
-  /** From `graph_phase` stream events (LangGraph agent); Cline omits. */
+  /** From `graph_phase` stream events (LangGraph agent). */
   graphPhase?: { phase: 'model' | 'tool'; detail?: string; langgraphNode?: string } | null;
 }): string | null {
   if (!input.isStreaming) return null;

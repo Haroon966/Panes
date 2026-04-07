@@ -8,7 +8,6 @@ import express from 'express';
 import { WebSocketServer } from 'ws';
 import { agentApiRouter } from './routes/agent';
 import { agentHitlRouter } from './routes/agentHitl';
-import { clineAgentRouter } from './routes/clineAgent';
 import { fishConfigRouter } from './routes/fishConfig';
 import { modelsApiRouter } from './routes/models';
 import { openDb, getDb } from './db/client';
@@ -55,7 +54,6 @@ app.get('/api/health', (_req, res) => {
 app.use('/api', modelsApiRouter);
 app.use('/api', agentApiRouter);
 app.use('/api', agentHitlRouter);
-app.use('/api', clineAgentRouter);
 app.use('/api', fishConfigRouter);
 app.use('/api', persistenceRouter);
 app.use('/api', updateCheckRouter);

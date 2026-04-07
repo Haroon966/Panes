@@ -10,7 +10,7 @@ git clone --depth 1 --branch main https://github.com/cline/cline.git vendor/clin
 
 For a stable snapshot, check out a tag after cloning (e.g. `git -C vendor/cline checkout v3.77.0`).
 
-Licensed under **Apache-2.0**. TerminalAI is a separate project; see root **`NOTICE`** and **`docs/cline-architecture-audit.md`**.
+Licensed under **Apache-2.0**. TerminalAI is a separate project; see root **`NOTICE`**.
 
 The directory `vendor/cline/` is listed in `.gitignore`.
 

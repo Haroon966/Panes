@@ -43,7 +43,6 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { cn } from '@/lib/utils';
 import { ChatInput } from './ChatInput';
 import { ChatMessage } from './ChatMessage';
-import { AgentToolActivity } from './AgentToolActivity';
 import { HitlApprovalPanel } from './HitlApprovalPanel';
 
 const HISTORY_PREVIEW_COUNT = 8;
@@ -61,7 +60,7 @@ function SessionTokenUsageBadge() {
   return (
     <span
       className="truncate text-2xs text-terminalai-mutedDeep"
-      title="Cumulative prompt and completion tokens reported by the TerminalAI agent (LangGraph) this session. Omitted when the provider does not send usage metadata, or when using the Cline backend."
+      title="Cumulative prompt and completion tokens reported by the TerminalAI agent (LangGraph) this session. Omitted when the provider does not send usage metadata."
     >
       Tokens: {formatCompactTokenCount(input)} in · {formatCompactTokenCount(output)} out
     </span>
@@ -82,7 +81,7 @@ function ChatHistoryIconRail({
 
   return (
     <aside
-      className="flex min-h-0 w-full shrink-0 flex-row items-center justify-between gap-2 border-b border-terminalai-border bg-terminalai-surface px-2 pb-2.5 pt-4 md:h-full md:w-14 md:flex-col md:items-center md:justify-start md:gap-0 md:border-b-0 md:border-r md:px-1.5 md:py-0"
+      className="flex min-h-0 w-full shrink-0 flex-row items-center justify-between gap-2 border-b border-terminalai-border bg-terminalai-surface px-2 pb-2.5 pt-4 md:h-full md:w-full md:min-w-0 md:flex-col md:items-center md:justify-start md:gap-0 md:border-b-0 md:border-r md:px-1.5 md:py-0"
       aria-label="Chat tools"
     >
       <div className="flex flex-row items-center gap-2 md:w-full md:flex-col md:items-center md:border-b md:border-terminalai-borderSubtle md:gap-2.5 md:px-1.5 md:pb-4 md:pt-6">
@@ -230,7 +229,7 @@ function ChatHistoryColumn({
 
   return (
     <aside
-      className="flex h-full min-h-0 w-full shrink-0 flex-col border-r border-terminalai-border bg-terminalai-surface md:w-[220px]"
+      className="flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col border-r border-terminalai-border bg-terminalai-surface"
       aria-label="Chat history"
     >
       <div className="shrink-0 border-b border-terminalai-borderSubtle px-3.5 pb-2.5 pt-4">
@@ -278,7 +277,9 @@ function ChatHistoryColumn({
       >
         {filtered.length === 0 ? (
           <p className="px-1 py-1 text-[11px] leading-snug text-terminalai-muted">
-            {conversations.length === 0 ? 'No saved chats yet.' : 'No matches.'}
+            {conversations.length === 0
+              ? 'No saved chats yet. Chats show up here after you send a message.'
+              : 'No matches for your search.'}
           </p>
         ) : (
           <ul className="space-y-0.5">
@@ -560,7 +561,7 @@ function ChatbotColumn({
               type="button"
               variant="ghost"
               size="icon-sm"
-              className="h-7 w-7 shrink-0 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+              className="h-7 w-7 shrink-0 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text max-[899px]:h-9 max-[899px]:w-9 max-[899px]:min-h-[44px] max-[899px]:min-w-[44px]"
               aria-label={historyPanelOpen ? 'Hide history panel' : 'Show history panel'}
               aria-pressed={historyPanelOpen}
               onClick={() => setHistoryPanelOpen(!historyPanelOpen)}
@@ -592,7 +593,7 @@ function ChatbotColumn({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text max-[899px]:h-9 max-[899px]:w-9 max-[899px]:min-h-[44px] max-[899px]:min-w-[44px]"
                     onClick={() => void clearMessages()}
                     aria-label="Clear chat"
                   >
@@ -607,7 +608,7 @@ function ChatbotColumn({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text max-[899px]:h-9 max-[899px]:w-9 max-[899px]:min-h-[44px] max-[899px]:min-w-[44px]"
                     onClick={onManageKeys}
                     aria-label="Settings / API keys"
                   >
@@ -622,7 +623,7 @@ function ChatbotColumn({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-accentText"
+                    className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-accentText max-[899px]:h-9 max-[899px]:w-9 max-[899px]:min-h-[44px] max-[899px]:min-w-[44px]"
                     onClick={() => void newChat()}
                     aria-label="New chat"
                   >
@@ -639,7 +640,7 @@ function ChatbotColumn({
                   type="button"
                   variant="ghost"
                   size="icon-sm"
-                  className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+                  className="h-7 w-7 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text max-[899px]:h-9 max-[899px]:w-9 max-[899px]:min-h-[44px] max-[899px]:min-w-[44px]"
                   onClick={() => void clearMessages()}
                   aria-label="Clear chat"
                 >
@@ -666,7 +667,7 @@ function ChatbotColumn({
             type="button"
             variant="ghost"
             size="icon-sm"
-            className="h-7 w-7 shrink-0 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text"
+            className="h-7 w-7 shrink-0 text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text max-[899px]:h-9 max-[899px]:w-9 max-[899px]:min-h-[44px] max-[899px]:min-w-[44px]"
             onClick={dismissAgentStreamInterruptedBanner}
             aria-label="Dismiss interrupted stream notice"
           >
@@ -679,7 +680,7 @@ function ChatbotColumn({
         className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3.5 py-3.5"
       >
         {messages.length === 0 && (
-          <div className="rounded-lg border border-dashed border-terminalai-border bg-terminalai-elevated/40 px-3.5 py-3.5">
+          <div className="rounded-lg border border-dashed border-terminalai-borderBright/60 bg-terminalai-elevated/50 px-3.5 py-3.5">
             <p className="text-[12.5px] font-medium text-terminalai-text">Get started</p>
             <ol className="mt-2.5 list-decimal space-y-2 pl-4 text-[12px] leading-relaxed text-terminalai-muted">
               <li>
@@ -704,17 +705,16 @@ function ChatbotColumn({
         {messages.map((m) => (
           <ChatMessage key={m.id} message={m} />
         ))}
-        <AgentToolActivity />
         {isStreaming && (
           <div
             className="flex w-fit max-w-full flex-col gap-1.5 rounded-lg rounded-bl-sm border border-terminalai-border bg-terminalai-elevated px-3 py-2.5"
             title={liveActivityExplanation ?? undefined}
           >
             <div className="flex flex-wrap items-center gap-2">
-              <span className="flex gap-1">
-                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:0ms]" />
-                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:200ms]" />
-                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:400ms]" />
+              <span className="flex gap-1" aria-hidden>
+                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:0ms] motion-reduce:animate-none" />
+                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:200ms] motion-reduce:animate-none" />
+                <span className="h-1 w-1 animate-pulse rounded-full bg-terminalai-mutedDeep [animation-delay:400ms] motion-reduce:animate-none" />
               </span>
               <span className="text-2xs text-terminalai-muted">Responding…</span>
               {graphPhaseLine && (
@@ -729,7 +729,7 @@ function ChatbotColumn({
                 <TooltipTrigger asChild>
                   <button
                     type="button"
-                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-terminalai-processing"
+                    className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-terminalai-muted hover:bg-terminalai-hover hover:text-terminalai-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-terminalai-processing focus-visible:ring-offset-2 focus-visible:ring-offset-terminalai-surface max-[899px]:h-9 max-[899px]:w-9 max-[899px]:min-h-[44px] max-[899px]:min-w-[44px]"
                     aria-label="What is the agent doing?"
                   >
                     <CircleHelp className="h-3.5 w-3.5" aria-hidden />
@@ -745,7 +745,7 @@ function ChatbotColumn({
                     type="button"
                     variant="outline"
                     size="xs"
-                    className="ml-1 h-6 gap-1 border-terminalai-border bg-terminalai-overlay text-2xs"
+                    className="ml-1 h-6 gap-1 border-terminalai-border bg-terminalai-overlay text-2xs max-[899px]:h-9 max-[899px]:min-h-[44px] max-[899px]:px-3 max-[899px]:text-xs"
                     onClick={abortStream}
                   >
                     <Square className="h-3 w-3" />
@@ -786,20 +786,28 @@ export function ChatSidebar({
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-terminalai-surface md:flex-row">
-      {historyPanelOpen ? (
-        <ChatHistoryColumn
-          historyFilter={historyFilter}
-          setHistoryFilter={setHistoryFilter}
-          onOpenSettings={onManageKeys}
-          shortcutsTrigger={shortcutsTrigger}
-        />
-      ) : (
-        <ChatHistoryIconRail
-          onOpenHistory={() => setHistoryPanelOpen(true)}
-          onOpenSettings={onManageKeys}
-          shortcutsIconTrigger={shortcutsIconTrigger}
-        />
-      )}
+      <div
+        className={cn(
+          'shrink-0 overflow-hidden transition-[width] duration-200 ease-out motion-reduce:transition-none',
+          'w-full',
+          historyPanelOpen ? 'md:w-[220px]' : 'md:w-14'
+        )}
+      >
+        {historyPanelOpen ? (
+          <ChatHistoryColumn
+            historyFilter={historyFilter}
+            setHistoryFilter={setHistoryFilter}
+            onOpenSettings={onManageKeys}
+            shortcutsTrigger={shortcutsTrigger}
+          />
+        ) : (
+          <ChatHistoryIconRail
+            onOpenHistory={() => setHistoryPanelOpen(true)}
+            onOpenSettings={onManageKeys}
+            shortcutsIconTrigger={shortcutsIconTrigger}
+          />
+        )}
+      </div>
       <ChatbotColumn
         catalog={catalog}
         onManageKeys={onManageKeys}

@@ -1,10 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import * as persistenceApi from '@/lib/persistenceApi';
-import type {
-  AppPrefsResponse,
-  PrefsAgentBackend,
-  PrefsAgentVerbosity,
-} from '@/lib/persistenceApi';
+import type { AppPrefsResponse, PrefsAgentVerbosity } from '@/lib/persistenceApi';
 import { terminalPersistedStateSchema } from '@/lib/terminalStateSchema';
 import { clampCodeFontSizePx, CODE_FONT_SIZE_DEFAULT } from '@/lib/codeFontSize';
 import { applyTerminalaiThemeDataset, resolveEffectiveTerminalTheme } from '@/lib/terminalaiTheme';
@@ -59,14 +55,10 @@ function hydrateSettingsFromPrefs(p: AppPrefsResponse): void {
   useSettingsStore.setState({
     selectedProvider: p.selectedProvider,
     selectedModel: p.selectedModel,
-    agentBackend: p.agentBackend,
-    clineModel: p.clineModel,
     keyPresence: p.keyPresence ?? FALLBACK_KEY_PRESENCE,
     customBaseUrl: p.customBaseUrl ?? '',
     workspaceRoot: p.workspaceRoot ?? '',
-    clineLocalBaseUrl: p.clineLocalBaseUrl ?? '',
-    clineAgentId: p.clineAgentId ?? 'default',
-    clineAutoFallbackOnError: p.clineAutoFallbackOnError ?? true,
+    agentVerifyCommand: typeof p.agentVerifyCommand === 'string' ? p.agentVerifyCommand : '',
     agentPanelOpen: p.agentPanelOpen ?? true,
     historyPanelOpen: p.historyPanelOpen ?? true,
     colorScheme,
@@ -92,10 +84,6 @@ async function migrateLegacyTerminalAiSettings(prefs: AppPrefsResponse): Promise
     const parsed = JSON.parse(raw) as {
       state?: {
         apiKeys?: Record<string, string | undefined>;
-        agentBackend?: PrefsAgentBackend;
-        clineAgentId?: string;
-        clineModel?: string;
-        clineAutoFallbackOnError?: boolean;
         agentPanelOpen?: boolean;
         historyPanelOpen?: boolean;
       };
@@ -122,11 +110,11 @@ async function migrateLegacyTerminalAiSettings(prefs: AppPrefsResponse): Promise
       }
     }
 
-    let clineLocal = legacyDec(ak.clineLocalBaseUrl || '').trim();
-    const n = clineLocal.replace(/\/$/, '');
-    if (n === 'http://127.0.0.1:8787' || n === 'http://localhost:8787') clineLocal = '';
-
-    if (Object.keys(apiKeys).length === 0 && !legacyDec(ak.customBaseUrl || '').trim() && !legacyDec(ak.workspaceRoot || '').trim() && !clineLocal) {
+    if (
+      Object.keys(apiKeys).length === 0 &&
+      !legacyDec(ak.customBaseUrl || '').trim() &&
+      !legacyDec(ak.workspaceRoot || '').trim()
+    ) {
       return false;
     }
 
@@ -134,13 +122,9 @@ async function migrateLegacyTerminalAiSettings(prefs: AppPrefsResponse): Promise
       selectedProvider: prefs.selectedProvider,
       selectedModel: prefs.selectedModel,
       activeConversationId: prefs.activeConversationId,
-      agentBackend: st.agentBackend ?? prefs.agentBackend,
-      clineModel: st.clineModel ?? prefs.clineModel,
       customBaseUrl: legacyDec(ak.customBaseUrl || ''),
       workspaceRoot: legacyDec(ak.workspaceRoot || ''),
-      clineLocalBaseUrl: clineLocal,
-      clineAgentId: st.clineAgentId ?? prefs.clineAgentId ?? 'default',
-      clineAutoFallbackOnError: st.clineAutoFallbackOnError ?? prefs.clineAutoFallbackOnError ?? true,
+      agentVerifyCommand: prefs.agentVerifyCommand ?? '',
       agentPanelOpen: st.agentPanelOpen ?? prefs.agentPanelOpen ?? true,
       historyPanelOpen: st.historyPanelOpen ?? prefs.historyPanelOpen ?? true,
       colorScheme: prefs.colorScheme ?? 'dark',
@@ -181,13 +165,9 @@ function prefsSyncSnapshot(
   return JSON.stringify({
     selectedProvider: s.selectedProvider,
     selectedModel: s.selectedModel,
-    agentBackend: s.agentBackend,
-    clineModel: s.clineModel,
     customBaseUrl: s.customBaseUrl,
     workspaceRoot: s.workspaceRoot,
-    clineLocalBaseUrl: s.clineLocalBaseUrl,
-    clineAgentId: s.clineAgentId,
-    clineAutoFallbackOnError: s.clineAutoFallbackOnError,
+    agentVerifyCommand: s.agentVerifyCommand,
     agentPanelOpen: s.agentPanelOpen,
     historyPanelOpen: s.historyPanelOpen,
     colorScheme: s.colorScheme,

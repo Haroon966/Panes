@@ -137,6 +137,28 @@ export function toolActivityFromToolStart(toolName: string, input: unknown): Too
         category: 'shell',
       };
     }
+    case 'run_project_verify_command': {
+      return {
+        title: 'Project verify',
+        subtitle: 'User-configured verify command',
+        category: 'shell',
+      };
+    }
+    case 'search_workspace_index': {
+      const q = str(o.query)?.trim() || '';
+      return {
+        title: 'Search index',
+        subtitle: trunc(q),
+        category: 'grep',
+      };
+    }
+    case 'rebuild_workspace_search_index': {
+      return {
+        title: 'Rebuild search index',
+        subtitle: 'FTS over workspace text files',
+        category: 'other',
+      };
+    }
     case 'get_terminal_snapshot': {
       return {
         title: 'Read terminal',

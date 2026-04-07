@@ -131,11 +131,11 @@ agentApiRouter.post('/agent', async (req: Request, res: Response) => {
     if (!res.headersSent) {
       const status = isClientConfigError(e) ? 400 : 500;
       const base = e instanceof Error ? e.message : 'Agent stream failed';
-      const hint = streamErrorToolHint(e, {});
+      const hint = streamErrorToolHint(e);
       res.status(status).json({ error: base + hint });
     } else if (!res.writableEnded) {
       try {
-        res.write(streamErrorToolHint(e, {}));
+        res.write(streamErrorToolHint(e));
       } catch {
         /* ignore */
       }

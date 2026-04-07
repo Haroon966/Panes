@@ -6,7 +6,7 @@ const CHAT_ROLES = new Set(['user', 'assistant', 'system']);
 export const CHAT_MESSAGES_REQUIRED = 'messages are required';
 
 /**
- * Validates chat `messages` for POST /api/agent and POST /api/agent/cline.
+ * Validates chat `messages` for POST /api/agent.
  * @returns `null` if valid; otherwise an error string (use {@link CHAT_MESSAGES_REQUIRED} for empty/missing).
  */
 export function getChatMessagesValidationError(messages: unknown): string | null {
@@ -31,7 +31,7 @@ export function getChatMessagesValidationError(messages: unknown): string | null
 }
 
 /** How the response body is produced (exposed as `X-TerminalAI-Stream-Kind`). */
-export type AgentTextStreamKind = 'langgraph' | 'cline_proxy';
+export type AgentTextStreamKind = 'langgraph';
 
 /**
  * Sets plain-text stream headers, `X-TerminalAI-Stream-Kind`, and aborts when the client drops the

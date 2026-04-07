@@ -15,7 +15,8 @@ import {
   Terminal,
   Wrench,
 } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
+import { humanizeAgentToolName } from '@/lib/agentActivitySummary';
 import { useChatStore, type AgentToolCallRow } from '@/store/chatStore';
 import { cn } from '@/lib/utils';
 import {
@@ -24,14 +25,6 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { HitlApprovalCard } from './HitlApprovalPanel';
-
-function humanizeToolName(name: string): string {
-  return name
-    .split('_')
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(' ');
-}
 
 function ActivityIcon({ row }: { row: AgentToolCallRow }) {
   const cls = 'h-3.5 w-3.5 shrink-0';
@@ -67,7 +60,8 @@ function ActivityIcon({ row }: { row: AgentToolCallRow }) {
   return <Wrench className={cn(cls, 'text-terminalai-muted')} aria-hidden />;
 }
 
-function ToolRow({ row }: { row: AgentToolCallRow }) {
+/** One tool invocation row (live stream or persisted trace). */
+export function AgentToolRow({ row }: { row: AgentToolCallRow }) {
   const [open, setOpen] = useState(false);
   const hitlRows = useChatStore((s) => s.hitlApprovals);
   const pendingHitl =
@@ -77,7 +71,7 @@ function ToolRow({ row }: { row: AgentToolCallRow }) {
   const showInlineApproval = row.phase === 'awaiting_approval' && pendingHitl && row.callId;
 
   const running = row.phase === 'running';
-  const primary = row.title?.trim() || humanizeToolName(row.toolName);
+  const primary = row.title?.trim() || humanizeAgentToolName(row.toolName);
   const subtitle = row.subtitle?.trim();
 
   const hasExpandableBody =
@@ -198,34 +192,6 @@ function ToolRow({ row }: { row: AgentToolCallRow }) {
           <HitlApprovalCard row={pendingHitl} variant="inline" toolCallId={row.callId} />
         </div>
       )}
-    </div>
-  );
-}
-
-export function AgentToolActivity() {
-  const rows = useChatStore((s) => s.activeToolCalls);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const prevLenRef = useRef(0);
-
-  useEffect(() => {
-    if (rows.length > prevLenRef.current && rootRef.current) {
-      rootRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
-    prevLenRef.current = rows.length;
-  }, [rows.length]);
-
-  if (rows.length === 0) return null;
-
-  return (
-    <div ref={rootRef} className="space-y-2" aria-label="Agent tool activity">
-      <div className="text-2xs font-semibold uppercase tracking-wide text-terminalai-mutedDeep">
-        Tools
-      </div>
-      <div className="space-y-1.5">
-        {rows.map((row) => (
-          <ToolRow key={row.callId} row={row} />
-        ))}
-      </div>
     </div>
   );
 }

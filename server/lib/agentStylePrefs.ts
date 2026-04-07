@@ -61,16 +61,25 @@ Explain reasoning and tradeoffs where helpful; stay grounded in tool output and 
   }
 }
 
+const MAX_AGENT_VERIFY_COMMAND = 2048;
+
+export function normalizeAgentVerifyCommand(raw: string | null | undefined): string {
+  const t = (raw ?? '').replace(/\r\n/g, '\n').trim();
+  return t.length > MAX_AGENT_VERIFY_COMMAND ? t.slice(0, MAX_AGENT_VERIFY_COMMAND) : t;
+}
+
 /** SQLite `agent_mode`: 1 = auto (follow env HITL only), 0 = always confirm file/shell mutations in UI. */
 export function loadAgentRuntimePrefs(db = getDb()): {
   agentVerbosity: AgentVerbosity;
   agentContextHints: string;
   agentAutoMode: boolean;
   agentPinnedPaths: string[];
+  agentVerifyCommand: string;
 } {
   const row = db
     .prepare(
-      `SELECT agent_verbosity, agent_context_hints, agent_mode, agent_pinned_paths_json
+      `SELECT agent_verbosity, agent_context_hints, agent_mode, agent_pinned_paths_json,
+              agent_verify_command
        FROM app_prefs WHERE id = 1`
     )
     .get() as
@@ -79,6 +88,7 @@ export function loadAgentRuntimePrefs(db = getDb()): {
           agent_context_hints: string;
           agent_mode: number;
           agent_pinned_paths_json: string;
+          agent_verify_command: string | null;
         }
       | undefined;
   const mode = row?.agent_mode;
@@ -87,5 +97,6 @@ export function loadAgentRuntimePrefs(db = getDb()): {
     agentContextHints: normalizeAgentContextHints(row?.agent_context_hints),
     agentAutoMode: mode === undefined ? true : mode === 1,
     agentPinnedPaths: normalizeAgentPinnedPathsFromJson(row?.agent_pinned_paths_json),
+    agentVerifyCommand: normalizeAgentVerifyCommand(row?.agent_verify_command ?? ''),
   };
 }

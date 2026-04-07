@@ -1,7 +1,6 @@
 import type { ProviderId } from '@/types/models';
+import type { AgentTraceEntry } from '@/types/agentTrace';
 import type { ChatMessage, MessageAlternate } from '@/types/chat';
-
-export type PrefsAgentBackend = 'langchain' | 'cline';
 
 export type PrefsColorScheme = 'dark' | 'light' | 'system';
 
@@ -15,14 +14,11 @@ export type AppPrefsResponse = {
   selectedProvider: ProviderId;
   selectedModel: string;
   activeConversationId: string | null;
-  agentBackend: PrefsAgentBackend;
-  clineModel: string;
   keyPresence: KeyPresence;
   customBaseUrl: string;
   workspaceRoot: string;
-  clineLocalBaseUrl: string;
-  clineAgentId: string;
-  clineAutoFallbackOnError: boolean;
+  /** Saved shell command for agent tool run_project_verify_command. */
+  agentVerifyCommand: string;
   agentPanelOpen: boolean;
   historyPanelOpen: boolean;
   /** Omitted if the API server predates the `color_scheme` column; client defaults to `dark`. */
@@ -41,19 +37,15 @@ export type AppPrefsResponse = {
   workspaceFormatOnSave?: boolean;
 };
 
-/** Mirrors `PUT /api/prefs` (SQLite `app_prefs`). `agentBackend` and `clineModel` persist the chat agent mode and dedicated Cline model id. */
+/** Mirrors `PUT /api/prefs` (SQLite `app_prefs`). */
 export type PutAppPrefsPayload = {
   selectedProvider: ProviderId;
   selectedModel: string;
   activeConversationId: string | null;
-  agentBackend: PrefsAgentBackend;
-  clineModel: string;
   customBaseUrl: string;
   /** Working directory from the terminal (private OSC); not set from Manage API Keys. */
   workspaceRoot: string;
-  clineLocalBaseUrl: string;
-  clineAgentId: string;
-  clineAutoFallbackOnError: boolean;
+  agentVerifyCommand: string;
   agentPanelOpen: boolean;
   historyPanelOpen: boolean;
   colorScheme: PrefsColorScheme;
@@ -128,6 +120,7 @@ export async function fetchMessages(conversationId: string): Promise<ChatMessage
       content: string;
       createdAt: number;
       alternates?: MessageAlternate[];
+      agentTrace?: AgentTraceEntry[];
     }[];
   }>(res);
   return data.messages.map((m) => ({
@@ -136,12 +129,16 @@ export async function fetchMessages(conversationId: string): Promise<ChatMessage
     content: m.content,
     createdAt: m.createdAt,
     alternates: m.alternates?.length ? m.alternates : undefined,
+    agentTrace: m.agentTrace?.length ? m.agentTrace : undefined,
   }));
 }
 
 export async function appendMessage(
   conversationId: string,
-  message: Pick<ChatMessage, 'id' | 'role' | 'content'> & { alternates?: MessageAlternate[] }
+  message: Pick<ChatMessage, 'id' | 'role' | 'content'> & {
+    alternates?: MessageAlternate[];
+    agentTrace?: AgentTraceEntry[];
+  }
 ): Promise<void> {
   const res = await fetch(`/api/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: 'POST',
@@ -151,6 +148,7 @@ export async function appendMessage(
       role: message.role,
       content: message.content,
       ...(message.alternates?.length ? { alternates: message.alternates } : {}),
+      ...(message.agentTrace?.length ? { agentTrace: message.agentTrace } : {}),
     }),
   });
   await parseJson(res);
@@ -163,6 +161,7 @@ export async function patchMessage(
     content?: string;
     alternates?: MessageAlternate[];
     activateAlternateId?: string;
+    agentTrace?: AgentTraceEntry[];
   }
 ): Promise<void> {
   const res = await fetch(

@@ -217,7 +217,7 @@ export function createGrepWorkspaceTool(workspaceRootAbs: string) {
       {
         name: 'grep_workspace_content',
         description:
-          'Search for a pattern in file contents under the workspace (like ripgrep). Use after find_workspace_files when you need symbols or strings inside files. Prefer fixed_string true for literals. Optional glob filters paths (e.g. "*.ts"). By default skips .git, node_modules, dist, build, .next, coverage, and common secret env files (.env, .env.local, …) while still allowing .env.example. Respects AGENT_GREP_TIMEOUT_MS and AGENT_GREP_MAX_OUTPUT_CHARS.',
+          'Search for a pattern in file contents under the workspace (like ripgrep). For UI tasks, search likely JSX/CSS tokens (e.g. <header, Navigation, className with "nav") not only the user’s casual word. Use after find_workspace_files when you need symbols or strings inside files. Prefer fixed_string true for literals. Optional glob filters paths (e.g. "*.tsx"). By default skips .git, node_modules, dist, build, .next, coverage, and common secret env files (.env, .env.local, …) while still allowing .env.example. Respects AGENT_GREP_TIMEOUT_MS and AGENT_GREP_MAX_OUTPUT_CHARS.',
         schema: z.object({
           pattern: z.string().describe('Search pattern (regex unless fixed_string is true)'),
           fixed_string: z

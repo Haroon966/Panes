@@ -1,5 +1,11 @@
 import { create } from 'zustand';
+import type { AgentTraceEntry } from '@/types/agentTrace';
+import {
+  clampAgentTraceForStorage,
+  finalizeAgentTraceForPersist,
+} from '@/types/agentTrace';
 import type { ChatMessage } from '@/types/chat';
+import { messagesForAgentRequest } from '@/lib/chatAgentPayload';
 import * as persistenceApi from '@/lib/persistenceApi';
 import type { ConversationRow, PutAppPrefsPayload } from '@/lib/persistenceApi';
 import { fetchAgentStreamWithRetry } from '@/lib/agentStreamFetch';
@@ -19,6 +25,26 @@ function id(): string {
   return crypto.randomUUID();
 }
 
+function mutateLastAssistantMessages(
+  messages: ChatMessage[],
+  fn: (m: ChatMessage) => ChatMessage
+): ChatMessage[] {
+  const i = messages.length - 1;
+  if (i < 0 || messages[i]!.role !== 'assistant') return messages;
+  const next = [...messages];
+  next[i] = fn({ ...messages[i]! });
+  return next;
+}
+
+/** Remove trailing empty assistant placeholder (used before appending an error reply). */
+function withoutTrailingEmptyAssistant(messages: ChatMessage[]): ChatMessage[] {
+  const last = messages[messages.length - 1];
+  if (last?.role === 'assistant' && last.content.trim() === '') {
+    return messages.slice(0, -1);
+  }
+  return messages;
+}
+
 function formatHttpErrorBody(status: number, body: string): string {
   try {
     const j = JSON.parse(body) as { error?: string };
@@ -29,9 +55,6 @@ function formatHttpErrorBody(status: number, body: string): string {
   const t = body.trim();
   return t ? `${status} ${t}` : String(status);
 }
-
-const CLINE_FALLBACK_NOTE =
-  '\n\nSwitched agent to TerminalAI (LangChain). For Cline + Ollama: run `ollama serve`, `ollama pull llama3.2` (or set CLINE_DEFAULT_MODEL), keep OLLAMA_BASE_URL in server .env, then pick Cline again.';
 
 /** Server returns 400 with these when keys/base URL are missing (see server/routes/agent.ts). */
 export function isClientConfigHttpError(status: number, detail: string): boolean {
@@ -55,22 +78,12 @@ export function isClientConfigHttpError(status: number, detail: string): boolean
 
 const MAX_WORKSPACE_SELECTION_INJECT_CHARS = 32_000;
 
-function shouldAutoFallbackFromClineFailure(status: number, detail: string): boolean {
-  if (detail.includes('Cline upstream URL missing') || detail.includes('Cline base URL missing')) return true;
-  if (status !== 502) return false;
-  return (
-    detail.includes('Cannot connect to Cline bridge') ||
-    detail.includes('Cannot reach Cline bridge') ||
-    detail.toLowerCase().includes('connection refused')
-  );
-}
-
 export type HitlApprovalRow = TerminalAiApprovalEvent & {
   status: 'pending' | 'approved' | 'rejected';
   feedback?: string;
 };
 
-/** Live LangGraph tool rows for the current turn (not persisted). */
+/** Live LangGraph tool rows for the current turn (mirrors the last assistant message `agentTrace`). */
 export type AgentToolCallRow = {
   callId: string;
   toolName: string;
@@ -96,11 +109,17 @@ async function persistAssistantIfNeeded(): Promise<void> {
   const { messages, activeConversationId } = useChatStore.getState();
   const last = messages[messages.length - 1];
   if (!activeConversationId || last?.role !== 'assistant') return;
+  const traceRaw = last.agentTrace ?? [];
+  const trace =
+    traceRaw.length > 0
+      ? clampAgentTraceForStorage(finalizeAgentTraceForPersist(traceRaw))
+      : undefined;
   try {
     try {
       await persistenceApi.patchMessage(activeConversationId, last.id, {
         content: last.content,
         alternates: last.alternates,
+        ...(trace != null && trace.length > 0 ? { agentTrace: trace } : {}),
       });
     } catch {
       await persistenceApi.appendMessage(activeConversationId, {
@@ -108,6 +127,7 @@ async function persistAssistantIfNeeded(): Promise<void> {
         role: last.role,
         content: last.content,
         alternates: last.alternates,
+        ...(trace != null && trace.length > 0 ? { agentTrace: trace } : {}),
       });
     }
     const list = await persistenceApi.listConversations();
@@ -129,7 +149,6 @@ async function runAgentStream(
     onVisible: (text: string) => void;
     onHttpErrorAssistant: (content: string, needsKeys: boolean) => void;
     onNetworkErrorAssistant: (content: string) => void;
-    onClineConfigError: (content: string) => void;
   }
 ): Promise<'ok' | 'aborted' | 'error'> {
   const settings = useSettingsStore.getState();
@@ -137,13 +156,10 @@ async function runAgentStream(
   const terminalCtx = useTerminalStore.getState().getTerminalContext();
   const terminalSessionId = useTerminalStore.getState().getShellConnectedSessionId();
 
-  const useCline = settings.agentBackend === 'cline';
-  const clineUrlResolved = settings.getClineLocalBaseUrl().trim();
   const workspaceRootHint = settings.getWorkspaceRoot().trim();
-  const clineLocalBody = settings.getClineLocalBaseUrl().trim();
 
   const dirtyPaths = useWorkbenchStore.getState().dirtyWorkspacePaths;
-  const langchainPayload = {
+  const payload = {
     messages: opts.messagesPayload,
     provider: settings.selectedProvider,
     model: settings.selectedModel,
@@ -154,36 +170,6 @@ async function runAgentStream(
     ...(opts.regenerationHint ? { regenerationHint: opts.regenerationHint } : {}),
     ...(dirtyPaths.length ? { workspaceDirtyPaths: dirtyPaths } : {}),
   };
-
-  const clinePayload = {
-    messages: opts.messagesPayload,
-    model: settings.selectedModel,
-    provider: settings.selectedProvider,
-    clineAgentId: settings.clineAgentId,
-    ...(settings.clineModel.trim() ? { clineModel: settings.clineModel.trim() } : {}),
-    errorContext: errCtx ?? undefined,
-    terminalContext: terminalCtx || undefined,
-    ...(terminalSessionId ? { terminalSessionId } : {}),
-    ...(workspaceRootHint ? { workspaceRoot: workspaceRootHint } : {}),
-    ...(clineLocalBody ? { clineLocalBaseUrl: clineLocalBody } : {}),
-    ...(opts.regenerationHint ? { regenerationHint: opts.regenerationHint } : {}),
-    ...(dirtyPaths.length ? { workspaceDirtyPaths: dirtyPaths } : {}),
-  };
-
-  const endpoint = useCline ? '/api/agent/cline' : '/api/agent';
-  const payload = useCline ? clinePayload : langchainPayload;
-
-  if (useCline && !clineUrlResolved && useSettingsStore.getState().clineServerBaseConfigured === false) {
-    const st = useSettingsStore.getState();
-    if (st.clineAutoFallbackOnError) {
-      st.setAgentBackend('langchain');
-    }
-    const msg =
-      'No Cline upstream URL: the server has no CLINE_LOCAL_BASE_URL, OLLAMA_BASE_URL, or LMSTUDIO_BASE_URL. Copy .env.example → .env or set “Cline local URL” in ⚙.' +
-      (st.clineAutoFallbackOnError ? CLINE_FALLBACK_NOTE : '');
-    opts.onClineConfigError(msg);
-    return 'error';
-  }
 
   const ac = get().abortController;
   if (!ac) return 'error';
@@ -192,7 +178,7 @@ async function runAgentStream(
     agentStreamShellSessionId: terminalSessionId ?? null,
   });
   try {
-    const res = await fetchAgentStreamWithRetry(endpoint, {
+    const res = await fetchAgentStreamWithRetry('/api/agent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -201,16 +187,7 @@ async function runAgentStream(
 
     if (!res.ok) {
       const errText = await res.text();
-      let detail = formatHttpErrorBody(res.status, errText);
-      if (
-        useCline &&
-        endpoint === '/api/agent/cline' &&
-        useSettingsStore.getState().clineAutoFallbackOnError &&
-        shouldAutoFallbackFromClineFailure(res.status, detail)
-      ) {
-        useSettingsStore.getState().setAgentBackend('langchain');
-        detail += CLINE_FALLBACK_NOTE;
-      }
+      const detail = formatHttpErrorBody(res.status, errText);
       const needsKeys = isClientConfigHttpError(res.status, detail);
       const assistantContent = needsKeys
         ? 'Model request failed: check your API key or provider settings (Manage API keys below).'
@@ -291,7 +268,7 @@ interface ChatState {
   agentStreamShellSessionId: string | null;
   /**
    * Cumulative LLM tokens reported by the TerminalAI agent stream (`usage` events).
-   * Resets on New chat / Clear chat. Not updated for Cline backend or providers without usage metadata.
+   * Resets on New chat / Clear chat. Not updated when the provider omits usage metadata.
    */
   sessionTokenUsage: { input: number; output: number };
   pushAgentToolStart: (event: TerminalAiToolStartEvent) => void;
@@ -416,7 +393,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (last?.role === 'assistant') {
         msgs[msgs.length - 1] = { ...last, content: last.content + chunk };
       } else {
-        msgs.push({ id: id(), role: 'assistant', content: chunk });
+        msgs.push({ id: id(), role: 'assistant', content: chunk, agentTrace: [] });
       }
       return { messages: msgs };
     }),
@@ -445,32 +422,78 @@ export const useChatStore = create<ChatState>((set, get) => ({
             c.callId === event.callId ? { ...c, approvalId: event.approvalId } : c
           )
         : s.activeToolCalls;
-      return { hitlApprovals: [...s.hitlApprovals, row], activeToolCalls };
+      const messages =
+        event.callId != null
+          ? mutateLastAssistantMessages(s.messages, (m) => ({
+              ...m,
+              agentTrace: (m.agentTrace ?? []).map((e) =>
+                e.kind === 'tool' && e.callId === event.callId
+                  ? { ...e, approvalId: event.approvalId }
+                  : e
+              ),
+            }))
+          : s.messages;
+      return { hitlApprovals: [...s.hitlApprovals, row], activeToolCalls, messages };
     }),
 
   pushAgentToolStart: (event) =>
-    set((s) => ({
-      activeToolCalls: [
-        ...s.activeToolCalls,
-        {
-          callId: event.callId,
-          toolName: event.toolName,
-          phase: 'running',
-          title: event.title,
-          subtitle: event.subtitle,
-          category: event.category,
-        },
-      ],
-    })),
+    set((s) => {
+      const toolRow: AgentToolCallRow = {
+        callId: event.callId,
+        toolName: event.toolName,
+        phase: 'running',
+        title: event.title,
+        subtitle: event.subtitle,
+        category: event.category,
+      };
+      const traceEntry: AgentTraceEntry = {
+        kind: 'tool',
+        callId: event.callId,
+        toolName: event.toolName,
+        phase: 'running',
+        title: event.title,
+        subtitle: event.subtitle,
+        category: event.category,
+      };
+      return {
+        activeToolCalls: [...s.activeToolCalls, toolRow],
+        messages: mutateLastAssistantMessages(s.messages, (m) => ({
+          ...m,
+          agentTrace: [...(m.agentTrace ?? []), traceEntry],
+        })),
+      };
+    }),
 
   applyAgentGraphPhase: (event) =>
-    set(() => ({
-      agentGraphPhase: {
+    set((s) => {
+      const entry: AgentTraceEntry = {
+        kind: 'graph_phase',
         phase: event.phase,
         ...(event.detail !== undefined ? { detail: event.detail } : {}),
         ...(event.langgraphNode !== undefined ? { langgraphNode: event.langgraphNode } : {}),
-      },
-    })),
+      };
+      const messages = mutateLastAssistantMessages(s.messages, (m) => {
+        const prev = m.agentTrace ?? [];
+        const lastEv = prev[prev.length - 1];
+        if (
+          lastEv?.kind === 'graph_phase' &&
+          lastEv.phase === entry.phase &&
+          lastEv.detail === entry.detail &&
+          lastEv.langgraphNode === entry.langgraphNode
+        ) {
+          return m;
+        }
+        return { ...m, agentTrace: [...prev, entry] };
+      });
+      return {
+        agentGraphPhase: {
+          phase: event.phase,
+          ...(event.detail !== undefined ? { detail: event.detail } : {}),
+          ...(event.langgraphNode !== undefined ? { langgraphNode: event.langgraphNode } : {}),
+        },
+        messages,
+      };
+    }),
 
   applyAgentToolDone: (event) =>
     set((s) => ({
@@ -503,6 +526,38 @@ export const useChatStore = create<ChatState>((set, get) => ({
           elapsedMs: event.elapsedMs,
         };
       }),
+      messages: mutateLastAssistantMessages(s.messages, (m) => ({
+        ...m,
+        agentTrace: (m.agentTrace ?? []).map((e) => {
+          if (e.kind !== 'tool' || e.callId !== event.callId) return e;
+          if (event.status === 'ok') {
+            return {
+              ...e,
+              phase: 'done',
+              preview: event.preview,
+              error: undefined,
+              secretHint: event.secretHint,
+              elapsedMs: event.elapsedMs,
+            };
+          }
+          if (event.status === 'error') {
+            return {
+              ...e,
+              phase: 'error',
+              error: event.error,
+              preview: undefined,
+              secretHint: event.secretHint,
+              elapsedMs: event.elapsedMs,
+            };
+          }
+          return {
+            ...e,
+            phase: 'awaiting_approval',
+            secretHint: undefined,
+            elapsedMs: event.elapsedMs,
+          };
+        }),
+      })),
     })),
 
   pruneAgentToolActivityAfterStream: () =>
@@ -515,6 +570,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       activeToolCalls: s.activeToolCalls.map((c) =>
         c.callId === callId ? { ...c, phase: 'done', preview, error: undefined } : c
       ),
+      messages: mutateLastAssistantMessages(s.messages, (m) => ({
+        ...m,
+        agentTrace: (m.agentTrace ?? []).map((e) =>
+          e.kind === 'tool' && e.callId === callId
+            ? { ...e, phase: 'done', preview, error: undefined }
+            : e
+        ),
+      })),
     })),
 
   resolveHitlApproval: (approvalId, status, feedback) =>
@@ -632,8 +695,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
     set({ showManageKeysCallout: false, a11yAnnouncement: '' });
 
     const userMsg: ChatMessage = { id: id(), role: 'user', content: raw };
+    const assistantMsgId = id();
     set((s) => ({
-      messages: [...s.messages, userMsg],
+      messages: [
+        ...s.messages,
+        userMsg,
+        { id: assistantMsgId, role: 'assistant', content: '', agentTrace: [] },
+      ],
       input: '',
       pendingErrorContext: null,
       isStreaming: true,
@@ -674,26 +742,17 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const ac = new AbortController();
     set({ abortController: ac });
 
-    const messagesPayload = get().messages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const messagesPayload = messagesForAgentRequest(get().messages);
 
     const outcome = await runAgentStream(get, set, {
       messagesPayload,
       onVisible: (text) => get().appendAssistantChunk(text),
-      onClineConfigError: (msg) => {
-        set((s) => ({
-          messages: [...s.messages, { id: id(), role: 'assistant', content: msg }],
-          isStreaming: false,
-          abortController: null,
-          activeToolCalls: [],
-          agentGraphPhase: null,
-        }));
-      },
       onHttpErrorAssistant: (content, needsKeys) => {
         set((s) => ({
-          messages: [...s.messages, { id: id(), role: 'assistant', content }],
+          messages: [
+            ...withoutTrailingEmptyAssistant(s.messages),
+            { id: id(), role: 'assistant', content },
+          ],
           isStreaming: false,
           abortController: null,
           showManageKeysCallout: needsKeys,
@@ -704,7 +763,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       onNetworkErrorAssistant: (content) => {
         set((s) => ({
           messages: [
-            ...s.messages,
+            ...withoutTrailingEmptyAssistant(s.messages),
             { id: id(), role: 'assistant', content },
           ],
           isStreaming: false,
@@ -764,6 +823,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await persistenceApi.patchMessage(cid, messageId, {
         content: '',
         alternates: newAlternates,
+        agentTrace: [],
       });
     } catch (e) {
       console.warn('[TerminalAI] regenerateAssistantMessage: initial patch failed', e);
@@ -772,7 +832,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((s) => ({
       messages: s.messages.map((m) =>
-        m.id === messageId ? { ...m, content: '', alternates: newAlternates } : m
+        m.id === messageId ? { ...m, content: '', alternates: newAlternates, agentTrace: [] } : m
       ),
       hitlApprovals: [],
       activeToolCalls: [],
@@ -789,17 +849,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       messagesPayload,
       errorContext: null,
       onVisible: (text) => get().appendAssistantChunkForMessageId(messageId, text),
-      onClineConfigError: (errMsg) => {
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            m.id === messageId ? { ...m, content: errMsg, alternates: newAlternates } : m
-          ),
-          isStreaming: false,
-          abortController: null,
-          activeToolCalls: [],
-          agentGraphPhase: null,
-        }));
-      },
       onHttpErrorAssistant: (content, needsKeys) => {
         set((s) => ({
           messages: s.messages.map((m) =>
@@ -856,6 +905,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       await persistenceApi.patchMessage(cid, messageId, {
         content: '',
         alternates: newAlternates,
+        agentTrace: [],
       });
     } catch (e) {
       console.warn('[TerminalAI] rewriteAssistantMessage: initial patch failed', e);
@@ -864,7 +914,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set((s) => ({
       messages: s.messages.map((m) =>
-        m.id === messageId ? { ...m, content: '', alternates: newAlternates } : m
+        m.id === messageId ? { ...m, content: '', alternates: newAlternates, agentTrace: [] } : m
       ),
       hitlApprovals: [],
       activeToolCalls: [],
@@ -882,17 +932,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       errorContext: null,
       regenerationHint: h,
       onVisible: (text) => get().appendAssistantChunkForMessageId(messageId, text),
-      onClineConfigError: (errMsg) => {
-        set((s) => ({
-          messages: s.messages.map((m) =>
-            m.id === messageId ? { ...m, content: errMsg, alternates: newAlternates } : m
-          ),
-          isStreaming: false,
-          abortController: null,
-          activeToolCalls: [],
-          agentGraphPhase: null,
-        }));
-      },
       onHttpErrorAssistant: (content, needsKeys) => {
         set((s) => ({
           messages: s.messages.map((m) =>
@@ -956,9 +995,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
 
     const prefix = [...messages.slice(0, idx), { ...msg, content: trimmed, alternates: newAlternates }];
+    const assistantPlaceId = id();
+    const withAssistant: ChatMessage[] = [
+      ...prefix,
+      { id: assistantPlaceId, role: 'assistant', content: '', agentTrace: [] },
+    ];
 
     set({
-      messages: prefix,
+      messages: withAssistant,
       hitlApprovals: [],
       activeToolCalls: [],
       agentGraphPhase: null,
@@ -970,24 +1014,18 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const ac = new AbortController();
     set({ abortController: ac });
 
-    const messagesPayload = prefix.map((m) => ({ role: m.role, content: m.content }));
+    const messagesPayload = messagesForAgentRequest(withAssistant);
 
     const outcome = await runAgentStream(get, set, {
       messagesPayload,
       errorContext: null,
       onVisible: (text) => get().appendAssistantChunk(text),
-      onClineConfigError: (errMsg) => {
-        set((s) => ({
-          messages: [...s.messages, { id: id(), role: 'assistant', content: errMsg }],
-          isStreaming: false,
-          abortController: null,
-          activeToolCalls: [],
-          agentGraphPhase: null,
-        }));
-      },
       onHttpErrorAssistant: (content, needsKeys) => {
         set((s) => ({
-          messages: [...s.messages, { id: id(), role: 'assistant', content }],
+          messages: [
+            ...withoutTrailingEmptyAssistant(s.messages),
+            { id: id(), role: 'assistant', content },
+          ],
           isStreaming: false,
           abortController: null,
           showManageKeysCallout: needsKeys,
@@ -997,7 +1035,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
       onNetworkErrorAssistant: (content) => {
         set((s) => ({
-          messages: [...s.messages, { id: id(), role: 'assistant', content }],
+          messages: [
+            ...withoutTrailingEmptyAssistant(s.messages),
+            { id: id(), role: 'assistant', content },
+          ],
           isStreaming: false,
           abortController: null,
           activeToolCalls: [],
@@ -1030,14 +1071,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   abortStream: () => {
     get().abortController?.abort();
-    set({
+    set((s) => ({
       isStreaming: false,
       abortController: null,
       activeToolCalls: [],
       agentGraphPhase: null,
       agentStreamShellSessionId: null,
       a11yAnnouncement: 'Generation stopped.',
-    });
+      messages: mutateLastAssistantMessages(s.messages, (m) => ({
+        ...m,
+        agentTrace: finalizeAgentTraceForPersist(m.agentTrace ?? []),
+      })),
+    }));
+    void persistAssistantIfNeeded();
   },
 
   clearMessages: async () => {
@@ -1076,13 +1122,9 @@ export function buildPutAppPrefsPayload(
     selectedProvider: s.selectedProvider,
     selectedModel: s.selectedModel,
     activeConversationId: c.activeConversationId,
-    agentBackend: s.agentBackend,
-    clineModel: s.clineModel,
     customBaseUrl: s.customBaseUrl,
     workspaceRoot: s.workspaceRoot,
-    clineLocalBaseUrl: s.clineLocalBaseUrl,
-    clineAgentId: s.clineAgentId,
-    clineAutoFallbackOnError: s.clineAutoFallbackOnError,
+    agentVerifyCommand: s.agentVerifyCommand,
     agentPanelOpen: s.agentPanelOpen,
     historyPanelOpen: s.historyPanelOpen,
     colorScheme: s.colorScheme,

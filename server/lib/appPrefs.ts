@@ -105,10 +105,6 @@ export function getGroqKeyFromDb(db = getDb()): string {
   return (keys.groq ?? '').trim();
 }
 
-export function getClineLocalBaseUrlFromDb(db = getDb()): string {
-  return (loadAppPrefsSecretsRow(db).cline_local_base_url ?? '').trim();
-}
-
 /** Body → DB-stored → omit (env handled in createChatModel). */
 export function resolveAgentAuthFromPrefs(
   body: { provider: ProviderId; model: string; apiKey?: string; baseUrl?: string },

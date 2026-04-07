@@ -26,9 +26,7 @@ const KEY_PROVIDERS: ProviderId[] = ['openai', 'anthropic', 'google', 'groq', 'm
 export function ApiKeyModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const setApiKeyLocal = useSettingsStore((s) => s.setApiKeyLocal);
   const setCustomBaseUrl = useSettingsStore((s) => s.setCustomBaseUrl);
-  const setClineLocalBaseUrl = useSettingsStore((s) => s.setClineLocalBaseUrl);
-  const clineAutoFallbackOnError = useSettingsStore((s) => s.clineAutoFallbackOnError);
-  const setClineAutoFallbackOnError = useSettingsStore((s) => s.setClineAutoFallbackOnError);
+  const setAgentVerifyCommand = useSettingsStore((s) => s.setAgentVerifyCommand);
   const keyPresence = useSettingsStore((s) => s.keyPresence);
   const setSelected = useSettingsStore((s) => s.setSelected);
 
@@ -53,13 +51,13 @@ export function ApiKeyModal({ open, onClose }: { open: boolean; onClose: () => v
   const removeAgentPinnedPath = useSettingsStore((s) => s.removeAgentPinnedPath);
   const workspaceFormatOnSave = useSettingsStore((s) => s.workspaceFormatOnSave);
   const setWorkspaceFormatOnSave = useSettingsStore((s) => s.setWorkspaceFormatOnSave);
-  const [clineUrlDraft, setClineUrlDraft] = useState('');
+  const [verifyCommandDraft, setVerifyCommandDraft] = useState('');
 
   useEffect(() => {
     if (!open) return;
     const s = useSettingsStore.getState();
     setCustomBase(s.customBaseUrl);
-    setClineUrlDraft(s.clineLocalBaseUrl);
+    setVerifyCommandDraft(s.agentVerifyCommand);
     if (s.selectedProvider === 'custom') {
       setCustomModel(s.selectedModel);
     }
@@ -97,8 +95,8 @@ export function ApiKeyModal({ open, onClose }: { open: boolean; onClose: () => v
     }
   };
 
-  const saveClineUrl = async () => {
-    setClineLocalBaseUrl(clineUrlDraft);
+  const saveVerifyCommand = async () => {
+    setAgentVerifyCommand(verifyCommandDraft);
     try {
       await flushAppPrefsToServer();
     } catch {
@@ -221,7 +219,7 @@ export function ApiKeyModal({ open, onClose }: { open: boolean; onClose: () => v
               <Label className="text-xs text-muted-foreground">Agent behavior</Label>
               <p className="text-2xs text-muted-foreground">
                 Verbosity and hints are saved in SQLite and appended to the agent system prompt on the
-                next request (LangGraph and Cline-with-tools).
+                next agent request (LangGraph).
               </p>
               <div className="flex flex-wrap gap-2">
                 {(
@@ -276,7 +274,7 @@ export function ApiKeyModal({ open, onClose }: { open: boolean; onClose: () => v
                 id="agent-context-hints"
                 rows={4}
                 maxLength={4000}
-                placeholder="e.g. TypeScript strict, Vitest, prefer functional React…"
+                placeholder="Stack (e.g. TypeScript strict, Vitest), repo conventions, default branch, how you run tests if it is non-obvious. The agent sees this every turn (use pinned files for long references)."
                 value={agentContextHints}
                 onChange={(e) => setAgentContextHints(e.target.value)}
                 className="font-mono text-xs"
@@ -342,35 +340,22 @@ export function ApiKeyModal({ open, onClose }: { open: boolean; onClose: () => v
           </div>
           <Separator />
           <div className="flex flex-col gap-2">
-            <Label className="text-xs text-muted-foreground">Cline local bridge URL</Label>
+            <Label className="text-xs text-muted-foreground">Agent verify command</Label>
             <p className="text-2xs text-muted-foreground">
-              Optional override (no trailing path). If empty, the API uses <code>OLLAMA_BASE_URL</code> /{' '}
-              <code>LMSTUDIO_BASE_URL</code> from server env or the URL saved here in the database. Auth:{' '}
-              <code>CLINE_AUTH_TOKEN</code> on the server.
+              Optional. One shell command the agent can run via <code className="text-2xs">run_project_verify_command</code>{' '}
+              after edits (same rules as integrated shell: <code className="text-2xs">AGENT_ALLOW_SHELL=1</code>, optional
+              approval). Example: <code className="text-2xs">npm test</code> or <code className="text-2xs">npm run lint</code>.
             </p>
             <div className="flex gap-2">
               <Input
                 className="flex-1 font-mono text-sm"
-                placeholder="http://127.0.0.1:11434"
-                value={clineUrlDraft}
-                onChange={(e) => setClineUrlDraft(e.target.value)}
+                placeholder="npm test"
+                value={verifyCommandDraft}
+                onChange={(e) => setVerifyCommandDraft(e.target.value)}
               />
-              <Button type="button" size="sm" variant="default" onClick={() => void saveClineUrl()}>
+              <Button type="button" size="sm" variant="default" onClick={() => void saveVerifyCommand()}>
                 Save
               </Button>
-            </div>
-            <div className="flex items-start gap-2 pt-1">
-              <input
-                id="cline-auto-fallback"
-                type="checkbox"
-                className="mt-0.5 h-3.5 w-3.5 rounded border-terminalai-border"
-                checked={clineAutoFallbackOnError}
-                onChange={(e) => setClineAutoFallbackOnError(e.target.checked)}
-              />
-              <Label htmlFor="cline-auto-fallback" className="text-2xs font-normal text-muted-foreground">
-                Auto-switch to TerminalAI (LangChain) when Cline is misconfigured or the bridge is
-                unreachable.
-              </Label>
             </div>
           </div>
           <Separator />

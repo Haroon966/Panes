@@ -1,8 +1,9 @@
 'use client';
 
-import { ChevronDown, ChevronRight, Copy } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronDown, ChevronRight, Copy, FileCode2 } from 'lucide-react';
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
+import { useWorkbenchStore } from '@/store/workbenchStore';
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,20 @@ import {
 import { cn } from '@/lib/utils';
 
 const PREVIEW_MAX_LINES = 14;
+
+/** First `+++ b/path` (or `+++ path`) in a unified diff, workspace-relative when using `b/`. */
+function extractUnifiedDiffBPath(raw: string): string | null {
+  for (const line of raw.split('\n')) {
+    const mb = line.match(/^\+\+\+\s+b\/(.+)$/);
+    if (mb?.[1]) return mb[1].trim().replace(/\\/g, '/');
+    const mo = line.match(/^\+\+\+\s+([^\s].*)$/);
+    if (mo?.[1]) {
+      const p = mo[1].trim();
+      if (!p.startsWith('/dev/') && p !== '/dev/null') return p.replace(/\\/g, '/');
+    }
+  }
+  return null;
+}
 
 function DiffLine({ line }: { line: string }) {
   const safe = line || ' ';
@@ -49,6 +64,8 @@ export function ChatDiffFence({ content }: { content: string }) {
   const [open, setOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [copied, setCopied] = useState(false);
+  const requestOpenEditorFile = useWorkbenchStore((s) => s.requestOpenEditorFile);
+  const diffTargetPath = useMemo(() => extractUnifiedDiffBPath(content), [content]);
   const lines = content.split('\n');
   const total = lines.length;
   const preview = lines.slice(0, PREVIEW_MAX_LINES);
@@ -95,6 +112,19 @@ export function ChatDiffFence({ content }: { content: string }) {
             </span>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {diffTargetPath ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-7 gap-1 px-2 text-2xs text-terminalai-muted hover:text-terminalai-text"
+                title={`Open ${diffTargetPath} in workspace editor`}
+                onClick={() => requestOpenEditorFile(diffTargetPath)}
+              >
+                <FileCode2 className="h-3 w-3 shrink-0" aria-hidden />
+                <span className="max-w-[100px] truncate">Open file</span>
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -157,7 +187,20 @@ export function ChatDiffFence({ content }: { content: string }) {
               ))}
             </div>
           </div>
-          <div className="flex justify-end gap-2 border-t border-terminalai-borderSubtle pt-3">
+          <div className="flex flex-wrap justify-end gap-2 border-t border-terminalai-borderSubtle pt-3">
+            {diffTargetPath ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="border-terminalai-border"
+                onClick={() => {
+                  requestOpenEditorFile(diffTargetPath);
+                  setOpen(false);
+                }}
+              >
+                Open {diffTargetPath}
+              </Button>
+            ) : null}
             <Button type="button" variant="outline" onClick={() => setOpen(false)}>
               Close
             </Button>

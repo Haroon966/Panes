@@ -3,30 +3,28 @@ import { describe, it } from 'node:test';
 import { prefsPutSchema } from './persistence.js';
 
 describe('prefsPutSchema', () => {
-  it('accepts minimal required fields with agent backend and cline model', () => {
+  it('accepts optional agentVerifyCommand', () => {
     const r = prefsPutSchema.safeParse({
       selectedProvider: 'openai',
       selectedModel: 'gpt-4o',
-      agentBackend: 'cline',
-      clineModel: 'llama3.2:latest',
+      agentVerifyCommand: 'npm test',
     });
     assert.equal(r.success, true);
     if (r.success) {
-      assert.equal(r.data.agentBackend, 'cline');
-      assert.equal(r.data.clineModel, 'llama3.2:latest');
+      assert.equal(r.data.agentVerifyCommand, 'npm test');
     }
   });
 
-  it('rejects invalid agentBackend', () => {
+  it('rejects agentVerifyCommand over max length', () => {
     const r = prefsPutSchema.safeParse({
       selectedProvider: 'openai',
-      selectedModel: 'x',
-      agentBackend: 'other',
+      selectedModel: 'gpt-4o',
+      agentVerifyCommand: 'x'.repeat(2049),
     });
     assert.equal(r.success, false);
   });
 
-  it('allows omitting agentBackend and clineModel (server merges from existing row)', () => {
+  it('allows omitting agentVerifyCommand', () => {
     const r = prefsPutSchema.safeParse({
       selectedProvider: 'ollama',
       selectedModel: 'mistral',
